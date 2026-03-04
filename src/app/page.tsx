@@ -124,6 +124,7 @@ export default function Home() {
                 onSelectChat={handleSelectChat}
                 onDeleteChat={deleteChat}
                 onNewChat={handleNewChat}
+                onUploadBrandDNADocument={updateBrandDNADocument}
               />
             </motion.div>
           </>
