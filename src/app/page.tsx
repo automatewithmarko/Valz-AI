@@ -132,7 +132,7 @@ export default function Home() {
       </AnimatePresence>
 
       {/* Main content area */}
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col bg-background">
         {/* Top bar */}
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
           <button

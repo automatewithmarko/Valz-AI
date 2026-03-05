@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import type { Chat } from "@/lib/types";
 import { ChatMessage } from "./ChatMessage";
 import { ChatWelcome } from "./ChatWelcome";
@@ -47,13 +47,20 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaP
   );
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full flex-col bg-background">
       {/* Messages or Welcome */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto chat-scroll">
         <div className="mx-auto flex min-h-full max-w-3xl flex-col">
           <AnimatePresence mode="wait">
             {hasMessages ? (
-              <div className="flex-1 space-y-1 py-4">
+              <motion.div
+                key="messages"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="flex-1 space-y-1 py-4"
+              >
                 {chat.messages.map((msg, i) => (
                   <ChatMessage
                     key={msg.id}
@@ -63,9 +70,9 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaP
                   />
                 ))}
                 <div ref={bottomRef} className="h-1" />
-              </div>
+              </motion.div>
             ) : (
-              <ChatWelcome onSuggestionClick={handleSuggestionClick} />
+              <ChatWelcome key="welcome" onSuggestionClick={handleSuggestionClick} />
             )}
           </AnimatePresence>
         </div>

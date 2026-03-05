@@ -34,7 +34,7 @@ export function ChatWelcome({ onSuggestionClick }: ChatWelcomeProps) {
       </p>
 
       {/* Suggestion Cards */}
-      <div className="grid w-full max-w-lg grid-cols-1 gap-2.5 sm:grid-cols-2">
+      <div className="grid w-full max-w-lg grid-cols-2 gap-2.5">
         {suggestions.map((text, i) => (
           <motion.button
             key={text}
