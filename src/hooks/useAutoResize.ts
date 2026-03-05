@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useLayoutEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
+
+const MIN_HEIGHT = 44;
 
 export function useAutoResize(maxHeight = 200) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -8,14 +10,13 @@ export function useAutoResize(maxHeight = 200) {
   const resize = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, maxHeight) + "px";
+    // Collapse to 0 so scrollHeight reflects actual content height,
+    // not the current rendered height.
+    el.style.height = "0px";
+    const contentHeight = Math.max(MIN_HEIGHT, Math.min(el.scrollHeight, maxHeight));
+    el.style.height = contentHeight + "px";
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [maxHeight]);
-
-  useLayoutEffect(() => {
-    resize();
-  }, [resize]);
 
   return { ref, resize };
 }

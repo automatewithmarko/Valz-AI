@@ -100,7 +100,8 @@ export function ChatInput({ onSend, isGenerating, initialValue }: ChatInputProps
     onSend(value.trim());
     setValue("");
     if (inputRef.current) {
-      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = "44px";
+      inputRef.current.style.overflowY = "hidden";
     }
     // Re-focus after sending
     setTimeout(() => inputRef.current?.focus(), 0);
