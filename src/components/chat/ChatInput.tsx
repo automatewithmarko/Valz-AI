@@ -147,7 +147,7 @@ export function ChatInput({ onSend, isGenerating, initialValue }: ChatInputProps
           onKeyDown={handleKeyDown}
           placeholder={isListening ? "Listening..." : "Message Valz.AI..."}
           rows={1}
-          className="max-h-[200px] min-h-[44px] flex-1 resize-none bg-transparent py-3 pl-1 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
+          className="h-[44px] max-h-[200px] flex-1 resize-none overflow-hidden bg-transparent py-3 pl-1 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           disabled={isGenerating}
         />
 
