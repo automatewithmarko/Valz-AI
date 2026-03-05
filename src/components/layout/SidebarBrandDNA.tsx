@@ -1,14 +1,11 @@
 "use client";
 
-import { useRef } from "react";
-import { FileText, Upload, CheckCircle } from "lucide-react";
+import Image from "next/image";
+import { FileText } from "lucide-react";
 import type { BrandDNA } from "@/lib/types";
 import {
   Dialog,
   DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
   DialogTrigger,
 } from "@/components/ui/dialog";
 
@@ -17,53 +14,7 @@ interface SidebarBrandDNAProps {
   onUploadDocument: (index: number, fileName: string) => void;
 }
 
-function UploadSlot({
-  label,
-  fileName,
-  onUpload,
-}: {
-  label: string;
-  fileName: string | null;
-  onUpload: (fileName: string) => void;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  return (
-    <button
-      type="button"
-      onClick={() => inputRef.current?.click()}
-      className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#e0d6d0] bg-white/40 p-4 text-center transition-all hover:border-[#c08967]/60 hover:bg-[#f2dacb]/20"
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) onUpload(file.name);
-        }}
-      />
-      {fileName ? (
-        <>
-          <CheckCircle className="h-6 w-6 text-green-500" />
-          <span className="text-xs font-medium text-foreground">{label}</span>
-          <span className="max-w-full truncate text-[10px] text-muted-foreground">
-            {fileName}
-          </span>
-        </>
-      ) : (
-        <>
-          <Upload className="h-6 w-6 text-muted-foreground" />
-          <span className="text-xs font-medium text-foreground">{label}</span>
-          <span className="text-[10px] text-muted-foreground">Upload PDF</span>
-        </>
-      )}
-    </button>
-  );
-}
-
-export function SidebarBrandDNA({ brandDNA, onUploadDocument }: SidebarBrandDNAProps) {
+export function SidebarBrandDNA({ brandDNA }: SidebarBrandDNAProps) {
   return (
     <div className="mx-3 rounded-lg border border-border bg-[#f2dacb]/20 p-3">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
@@ -93,22 +44,24 @@ export function SidebarBrandDNA({ brandDNA, onUploadDocument }: SidebarBrandDNAP
                 Build now
               </button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Build your Brand DNA</DialogTitle>
-                <DialogDescription>
-                  Upload the following documents to build your brand profile. Each slot accepts a PDF file.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                {brandDNA.documents.map((doc, i) => (
-                  <UploadSlot
-                    key={doc.label}
-                    label={doc.label}
-                    fileName={doc.fileName}
-                    onUpload={(fileName) => onUploadDocument(i, fileName)}
-                  />
-                ))}
+            <DialogContent className="sm:max-w-md">
+              <div className="flex flex-col items-center px-4 py-6 text-center">
+                <Image
+                  src="/logo.png"
+                  alt="Valz.AI"
+                  width={80}
+                  height={80}
+                  className="mb-6 h-auto w-auto"
+                />
+                <h2 className="mb-3 text-xl font-semibold text-foreground">
+                  Build your Brand DNA
+                </h2>
+                <p className="mb-6 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                  Talk to an AI coach that will help you figure out your brand DNA messaging, ideal audience, and so much more using Cass Valzacchi Human Design Framework
+                </p>
+                <button className="w-full rounded-lg bg-[#06264e] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90">
+                  Build the Brand DNA &mdash; $97
+                </button>
               </div>
             </DialogContent>
           </Dialog>
