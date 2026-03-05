@@ -115,7 +115,7 @@ export default function Home() {
               animate={{ x: 0 }}
               exit={{ x: -280 }}
               transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-              className="fixed inset-y-0 left-0 z-50 w-[280px] border-r border-border bg-[--sidebar-bg]"
+              className="fixed inset-y-0 left-0 z-50 w-[280px] border-r border-border bg-sidebar"
             >
               <Sidebar
                 user={user}

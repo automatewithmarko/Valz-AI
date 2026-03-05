@@ -29,7 +29,7 @@ export function Sidebar({
   onUploadBrandDNADocument,
 }: SidebarProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[--sidebar-bg]">
+    <div className="flex h-full flex-col overflow-hidden bg-sidebar">
       {/* Profile */}
       <div className="shrink-0 p-3 pb-2">
         <SidebarProfile user={user} />
