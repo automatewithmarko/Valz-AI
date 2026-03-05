@@ -47,7 +47,7 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaP
   );
 
   return (
-    <div className="relative flex h-full flex-col bg-background">
+    <div className="relative flex min-h-0 flex-1 flex-col bg-background">
       {/* Messages or Welcome */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto chat-scroll">
         <div className="mx-auto flex min-h-full max-w-3xl flex-col">
