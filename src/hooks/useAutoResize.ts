@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useLayoutEffect, useRef } from "react";
 
 export function useAutoResize(maxHeight = 200) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -13,7 +13,7 @@ export function useAutoResize(maxHeight = 200) {
     el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [maxHeight]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     resize();
   }, [resize]);
 
