@@ -6,8 +6,15 @@ import { Menu, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { useChat } from "@/hooks/useChat";
+import { AuthScreen } from "@/components/onboarding/AuthScreen";
+import { ProductSelectScreen } from "@/components/onboarding/ProductSelectScreen";
+import { PricingScreen } from "@/components/onboarding/PricingScreen";
+
+type Screen = "auth" | "products" | "pricing" | "app";
 
 export default function Home() {
+  const [screen, setScreen] = useState<Screen>("auth");
+
   const {
     chats,
     activeChat,
@@ -42,6 +49,7 @@ export default function Home() {
 
   // Keyboard shortcuts
   useEffect(() => {
+    if (screen !== "app") return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "n") {
         e.preventDefault();
@@ -59,7 +67,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [createNewChat, isMobile]);
+  }, [createNewChat, isMobile, screen]);
 
   const handleSelectChat = useCallback(
     (id: string) => {
@@ -74,6 +82,24 @@ export default function Home() {
     setMobileMenuOpen(false);
   }, [createNewChat]);
 
+  // Onboarding screens
+  if (screen !== "app") {
+    return (
+      <AnimatePresence mode="wait">
+        {screen === "auth" && (
+          <AuthScreen onComplete={() => setScreen("products")} />
+        )}
+        {screen === "products" && (
+          <ProductSelectScreen onSelectConsulting={() => setScreen("pricing")} />
+        )}
+        {screen === "pricing" && (
+          <PricingScreen onComplete={() => setScreen("app")} />
+        )}
+      </AnimatePresence>
+    );
+  }
+
+  // Main app
   return (
     <div className="flex h-dvh overflow-hidden bg-background">
       {/* Desktop sidebar */}
