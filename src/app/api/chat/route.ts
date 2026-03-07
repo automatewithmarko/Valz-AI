@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { createClient } from "@/lib/supabase/server";
 
 const SYSTEM_PROMPT = `You are Valz.AI, an expert AI-powered brand valuation and analysis assistant. You help users understand, measure, and grow their brand's value.
 
@@ -13,6 +14,20 @@ Your capabilities include:
 Be professional, data-driven, and actionable in your responses. Use markdown formatting with headers, tables, bullet points, and bold text to make your analysis clear and scannable. When providing valuations or metrics, explain your reasoning.`;
 
 export async function POST(req: NextRequest) {
+  // Verify authentication
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: authError,
+  } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const { messages } = await req.json();
 
   const apiKey = process.env.XAI_API_KEY;

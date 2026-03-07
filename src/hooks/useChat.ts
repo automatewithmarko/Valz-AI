@@ -1,31 +1,18 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
-import type { Chat, Message, User } from "@/lib/types";
+import { useState, useCallback, useRef, useEffect } from "react";
+import type { Chat, Message } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
+import { createClient } from "@/lib/supabase/client";
+import {
+  getChats,
+  getChatMessages,
+  createChat as dbCreateChat,
+  deleteChat as dbDeleteChat,
+  insertChatMessage,
+  updateChatMessage,
+} from "@/lib/supabase/db";
 import { generateChatTitle } from "@/lib/mock-responses";
-
-const initialChats: Chat[] = [];
-
-const initialUser: User = {
-  id: "1",
-  name: "Marko Filipovic",
-  email: "marko@valz.ai",
-  credits: 2450,
-  maxCredits: 5000,
-  brandDNA: {
-    configured: false,
-    brandName: "",
-    status: "not_configured",
-    documents: [
-      { label: "ICP", fileName: null },
-      { label: "Brand Guidelines", fileName: null },
-      { label: "Competitor Analysis", fileName: null },
-      { label: "Market Research", fileName: null },
-      { label: "Value Proposition", fileName: null },
-      { label: "Brand Story", fileName: null },
-    ],
-  },
-};
 
 async function streamResponse(
   messages: { role: string; content: string }[],
@@ -82,35 +69,94 @@ async function streamResponse(
 }
 
 export function useChat() {
-  const [chats, setChats] = useState<Chat[]>(initialChats);
+  const { user, refreshUser } = useAuth();
+  const [supabase] = useState(() => createClient());
+  const [chats, setChats] = useState<Chat[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
-  const [user, setUser] = useState<User>(initialUser);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null;
+
+  // Load chats from Supabase on mount
+  useEffect(() => {
+    if (!user || loaded) return;
+
+    const loadChats = async () => {
+      try {
+        const dbChats = await getChats(supabase, user.id);
+        const chatList: Chat[] = dbChats.map((c) => ({
+          id: c.id,
+          title: c.title,
+          messages: [], // load lazily
+          createdAt: new Date(c.created_at),
+          updatedAt: new Date(c.updated_at),
+        }));
+        setChats(chatList);
+        setLoaded(true);
+      } catch (err) {
+        console.error("Failed to load chats:", err);
+        setLoaded(true);
+      }
+    };
+
+    loadChats();
+  }, [user, loaded, supabase]);
+
+  // Load messages when selecting a chat
+  const selectChat = useCallback(
+    async (chatId: string) => {
+      setActiveChatId(chatId);
+
+      // Check if we already have messages loaded for this chat
+      const chat = chats.find((c) => c.id === chatId);
+      if (chat && chat.messages.length > 0) return;
+
+      try {
+        const messages = await getChatMessages(supabase, chatId);
+        const mappedMessages: Message[] = messages.map((m) => ({
+          id: m.id,
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          timestamp: new Date(m.created_at),
+        }));
+
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === chatId ? { ...c, messages: mappedMessages } : c
+          )
+        );
+      } catch (err) {
+        console.error("Failed to load messages:", err);
+      }
+    },
+    [chats, supabase]
+  );
 
   const createNewChat = useCallback(() => {
     setActiveChatId(null);
   }, []);
 
-  const selectChat = useCallback((chatId: string) => {
-    setActiveChatId(chatId);
-  }, []);
-
   const deleteChat = useCallback(
-    (chatId: string) => {
+    async (chatId: string) => {
       setChats((prev) => prev.filter((c) => c.id !== chatId));
       if (activeChatId === chatId) {
         setActiveChatId(null);
       }
+
+      try {
+        await dbDeleteChat(supabase, chatId);
+      } catch (err) {
+        console.error("Failed to delete chat:", err);
+      }
     },
-    [activeChatId]
+    [activeChatId, supabase]
   );
 
   const sendMessage = useCallback(
     async (content: string) => {
-      if (isGenerating) return;
+      if (isGenerating || !user) return;
 
       const userMessage: Message = {
         id: `msg-${Date.now()}`,
@@ -123,35 +169,84 @@ export function useChat() {
       let currentMessages: { role: string; content: string }[] = [];
 
       if (!chatId) {
-        chatId = `chat-${Date.now()}`;
-        const newChat: Chat = {
-          id: chatId,
-          title: generateChatTitle(content),
-          messages: [userMessage],
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        setChats((prev) => [newChat, ...prev]);
-        setActiveChatId(chatId);
-        currentMessages = [{ role: "user", content }];
+        // Create new chat in DB
+        try {
+          const title = generateChatTitle(content);
+          const newDbChat = await dbCreateChat(supabase, user.id, title);
+          chatId = newDbChat.id;
+
+          const newChat: Chat = {
+            id: chatId,
+            title,
+            messages: [userMessage],
+            createdAt: new Date(newDbChat.created_at),
+            updatedAt: new Date(newDbChat.updated_at),
+          };
+          setChats((prev) => [newChat, ...prev]);
+          setActiveChatId(chatId);
+          currentMessages = [{ role: "user", content }];
+
+          // Save user message to DB
+          const savedMsg = await insertChatMessage(supabase, {
+            chat_id: chatId,
+            user_id: user.id,
+            role: "user",
+            content,
+          });
+          // Update the message ID to the DB one
+          userMessage.id = savedMsg.id;
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? { ...c, messages: c.messages.map((m) => (m.id === `msg-${Date.now()}` ? { ...m, id: savedMsg.id } : m)) }
+                : c
+            )
+          );
+        } catch (err) {
+          console.error("Failed to create chat:", err);
+          return;
+        }
       } else {
+        // Add to existing chat
         setChats((prev) =>
           prev.map((c) => {
             if (c.id === chatId) {
-              const updated = { ...c, messages: [...c.messages, userMessage], updatedAt: new Date() };
-              currentMessages = updated.messages.map((m) => ({ role: m.role, content: m.content }));
+              const updated = {
+                ...c,
+                messages: [...c.messages, userMessage],
+                updatedAt: new Date(),
+              };
+              currentMessages = updated.messages.map((m) => ({
+                role: m.role,
+                content: m.content,
+              }));
               return updated;
             }
             return c;
           })
         );
         if (currentMessages.length === 0) {
-          // Fallback: build from existing chat
           const chat = chats.find((c) => c.id === chatId);
           currentMessages = [
-            ...(chat?.messages.map((m) => ({ role: m.role, content: m.content })) || []),
+            ...(chat?.messages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })) || []),
             { role: "user", content },
           ];
+        }
+
+        // Save user message to DB
+        try {
+          const savedMsg = await insertChatMessage(supabase, {
+            chat_id: chatId,
+            user_id: user.id,
+            role: "user",
+            content,
+          });
+          userMessage.id = savedMsg.id;
+        } catch (err) {
+          console.error("Failed to save user message:", err);
         }
       }
 
@@ -168,7 +263,12 @@ export function useChat() {
                 ...c,
                 messages: [
                   ...c.messages,
-                  { id: assistantMsgId, role: "assistant" as const, content: "", timestamp: new Date() },
+                  {
+                    id: assistantMsgId,
+                    role: "assistant" as const,
+                    content: "",
+                    timestamp: new Date(),
+                  },
                 ],
               }
             : c
@@ -179,7 +279,7 @@ export function useChat() {
         const abort = new AbortController();
         abortRef.current = abort;
 
-        await streamResponse(
+        const finalContent = await streamResponse(
           currentMessages,
           (text) => {
             setChats((prev) =>
@@ -188,7 +288,9 @@ export function useChat() {
                   ? {
                       ...c,
                       messages: c.messages.map((m) =>
-                        m.id === assistantMsgId ? { ...m, content: text } : m
+                        m.id === assistantMsgId
+                          ? { ...m, content: text }
+                          : m
                       ),
                       updatedAt: new Date(),
                     }
@@ -199,13 +301,16 @@ export function useChat() {
           abort.signal
         );
 
-        setUser((prev) => ({
-          ...prev,
-          credits: Math.max(0, prev.credits - 1),
-        }));
-      } catch (err) {
-        if ((err as Error).name !== "AbortError") {
-          // Update assistant message with error
+        // Save assistant message to DB
+        try {
+          const savedAssistant = await insertChatMessage(supabase, {
+            chat_id: currentChatId!,
+            user_id: user.id,
+            role: "assistant",
+            content: finalContent,
+          });
+
+          // Update local message with DB id
           setChats((prev) =>
             prev.map((c) =>
               c.id === currentChatId
@@ -213,7 +318,38 @@ export function useChat() {
                     ...c,
                     messages: c.messages.map((m) =>
                       m.id === assistantMsgId
-                        ? { ...m, content: "Sorry, something went wrong. Please try again." }
+                        ? { ...m, id: savedAssistant.id }
+                        : m
+                    ),
+                  }
+                : c
+            )
+          );
+        } catch (err) {
+          console.error("Failed to save assistant message:", err);
+        }
+
+        // Decrement credit via API
+        try {
+          await supabase.rpc("decrement_credit", { user_uuid: user.id });
+          refreshUser();
+        } catch (err) {
+          console.error("Failed to decrement credit:", err);
+        }
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") {
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === currentChatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantMsgId
+                        ? {
+                            ...m,
+                            content:
+                              "Sorry, something went wrong. Please try again.",
+                          }
                         : m
                     ),
                   }
@@ -226,16 +362,22 @@ export function useChat() {
         setIsGenerating(false);
       }
     },
-    [activeChatId, isGenerating, chats]
+    [activeChatId, isGenerating, chats, user, supabase, refreshUser]
   );
 
   const regenerateLastResponse = useCallback(async () => {
-    if (!activeChat || isGenerating) return;
+    if (!activeChat || isGenerating || !user) return;
     const messages = activeChat.messages;
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
     if (!lastUserMsg) return;
 
     // Remove the last assistant message
+    const lastAssistantIdx = messages.findLastIndex(
+      (m) => m.role === "assistant"
+    );
+    const lastAssistantId =
+      lastAssistantIdx >= 0 ? messages[lastAssistantIdx].id : null;
+
     setChats((prev) =>
       prev.map((c) => {
         if (c.id !== activeChatId) return c;
@@ -247,6 +389,18 @@ export function useChat() {
         };
       })
     );
+
+    // Delete the old assistant message from DB
+    if (lastAssistantId && !lastAssistantId.startsWith("msg-")) {
+      try {
+        await supabase
+          .from("chat_messages")
+          .delete()
+          .eq("id", lastAssistantId);
+      } catch (err) {
+        console.error("Failed to delete old assistant message:", err);
+      }
+    }
 
     // Build message history up to the last user message
     const historyUpToLastUser = messages
@@ -266,7 +420,12 @@ export function useChat() {
               ...c,
               messages: [
                 ...c.messages,
-                { id: assistantMsgId, role: "assistant" as const, content: "", timestamp: new Date() },
+                {
+                  id: assistantMsgId,
+                  role: "assistant" as const,
+                  content: "",
+                  timestamp: new Date(),
+                },
               ],
             }
           : c
@@ -277,7 +436,7 @@ export function useChat() {
       const abort = new AbortController();
       abortRef.current = abort;
 
-      await streamResponse(
+      const finalContent = await streamResponse(
         historyUpToLastUser,
         (text) => {
           setChats((prev) =>
@@ -297,10 +456,39 @@ export function useChat() {
         abort.signal
       );
 
-      setUser((prev) => ({
-        ...prev,
-        credits: Math.max(0, prev.credits - 1),
-      }));
+      // Save to DB
+      try {
+        const savedAssistant = await insertChatMessage(supabase, {
+          chat_id: currentChatId!,
+          user_id: user.id,
+          role: "assistant",
+          content: finalContent,
+        });
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === currentChatId
+              ? {
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, id: savedAssistant.id }
+                      : m
+                  ),
+                }
+              : c
+          )
+        );
+      } catch (err) {
+        console.error("Failed to save regenerated message:", err);
+      }
+
+      // Decrement credit
+      try {
+        await supabase.rpc("decrement_credit", { user_uuid: user.id });
+        refreshUser();
+      } catch (err) {
+        console.error("Failed to decrement credit:", err);
+      }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setChats((prev) =>
@@ -310,7 +498,11 @@ export function useChat() {
                   ...c,
                   messages: c.messages.map((m) =>
                     m.id === assistantMsgId
-                      ? { ...m, content: "Sorry, something went wrong. Please try again." }
+                      ? {
+                          ...m,
+                          content:
+                            "Sorry, something went wrong. Please try again.",
+                        }
                       : m
                   ),
                 }
@@ -322,28 +514,19 @@ export function useChat() {
       abortRef.current = null;
       setIsGenerating(false);
     }
-  }, [activeChat, activeChatId, isGenerating]);
+  }, [activeChat, activeChatId, isGenerating, user, supabase, refreshUser]);
 
   const updateBrandDNADocument = useCallback(
     (index: number, fileName: string) => {
-      setUser((prev) => {
-        const docs = [...prev.brandDNA.documents];
-        docs[index] = { ...docs[index], fileName };
-        const allUploaded = docs.every((d) => d.fileName !== null);
-        return {
-          ...prev,
-          brandDNA: {
-            ...prev.brandDNA,
-            documents: docs,
-            configured: allUploaded,
-            status: allUploaded ? "active" : "not_configured",
-            brandName: allUploaded ? prev.name : prev.brandDNA.brandName,
-          },
-        };
-      });
+      // Brand DNA documents are managed separately; this is kept for compatibility
+      console.log("updateBrandDNADocument", index, fileName);
     },
     []
   );
+
+  const setBrandDNAComplete = useCallback(() => {
+    refreshUser();
+  }, [refreshUser]);
 
   return {
     chats,
@@ -357,5 +540,6 @@ export function useChat() {
     sendMessage,
     regenerateLastResponse,
     updateBrandDNADocument,
+    setBrandDNAComplete,
   };
 }

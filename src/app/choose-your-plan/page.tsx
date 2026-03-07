@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
@@ -9,24 +10,34 @@ import { getPlans, createDemoSubscription } from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
 import type { Plan } from "@/lib/types";
 
-// Feature descriptions for display (maps plan name → display metadata)
 const planMeta: Record<string, { cta: string; highlighted: boolean }> = {
   starter: { cta: "Get Started", highlighted: false },
   growth: { cta: "Upgrade to Growth", highlighted: true },
   pro: { cta: "Go Pro", highlighted: false },
 };
 
-interface PricingScreenProps {
-  onComplete: () => void;
-}
-
-export function PricingScreen({ onComplete }: PricingScreenProps) {
-  const { supabaseUser, refreshUser } = useAuth();
+export default function ChooseYourPlanPage() {
+  const router = useRouter();
+  const { session, loading: authLoading, user, supabaseUser, refreshUser } = useAuth();
   const [supabase] = useState(() => createClient());
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [selectingPlanId, setSelectingPlanId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Redirect to home if not authenticated
+  useEffect(() => {
+    if (!authLoading && !session) {
+      router.replace("/");
+    }
+  }, [authLoading, session, router]);
+
+  // Redirect to Valzacchi AI if already has a subscription
+  useEffect(() => {
+    if (user?.hasActiveSubscription) {
+      router.replace("/valzacchi-ai");
+    }
+  }, [user, router]);
 
   // Fetch plans from DB on mount
   useEffect(() => {
@@ -57,9 +68,8 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
         plan.id,
         plan.monthly_credits
       );
-      // Refresh user context so it picks up the new subscription + credits
       await refreshUser();
-      onComplete();
+      router.push("/valzacchi-ai");
     } catch (err) {
       console.error("Failed to activate plan:", err);
       setError("Something went wrong. Please try again.");
@@ -69,7 +79,7 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
 
   const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
 
-  if (loadingPlans) {
+  if (authLoading || loadingPlans || !session) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
         <Loader2 className="h-8 w-8 animate-spin text-[#06264e]" />
@@ -79,10 +89,8 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
 
   return (
     <motion.div
-      key="pricing"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
       className="flex min-h-dvh flex-col items-center justify-center bg-background px-4 py-12"
     >
@@ -154,6 +162,14 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
           );
         })}
       </div>
+
+      {/* Back button */}
+      <button
+        onClick={() => router.back()}
+        className="mt-8 text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        ← Back
+      </button>
     </motion.div>
   );
 }

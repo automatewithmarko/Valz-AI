@@ -1,13 +1,17 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 
 interface ProductSelectScreenProps {
   onSelectConsulting: () => void;
+  onBack: () => void;
 }
 
-export function ProductSelectScreen({ onSelectConsulting }: ProductSelectScreenProps) {
+export function ProductSelectScreen({ onSelectConsulting, onBack }: ProductSelectScreenProps) {
+  const router = useRouter();
+
   return (
     <motion.div
       key="products"
@@ -15,36 +19,64 @@ export function ProductSelectScreen({ onSelectConsulting }: ProductSelectScreenP
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.3 }}
-      className="flex min-h-dvh items-center justify-center bg-background px-4"
+      className="flex min-h-dvh items-center justify-center bg-background px-4 py-12"
     >
-      <div className="w-full max-w-sm text-center">
+      <div className="w-full max-w-xl text-center">
         {/* Logo */}
-        <div className="mb-8 flex justify-center">
-          <Image src="/logo.png" alt="Valz.AI" width={120} height={120} className="h-auto w-auto" priority />
+        <div className="mb-1 flex justify-center">
+          <Image src="/logo.png" alt="Valz.AI" width={200} height={200} className="h-auto w-auto" priority />
         </div>
 
         {/* Headline */}
-        <h1 className="mb-8 text-2xl font-bold text-foreground">Choose your product</h1>
+        <h1 className="mb-4 text-2xl font-semibold text-[#06264e]">
+          Choose how you want to continue
+        </h1>
 
-        {/* Product buttons */}
+        {/* Description */}
+        <p className="mx-auto mb-10 max-w-lg text-sm leading-relaxed text-muted-foreground">
+          Get a complete brand identity built for you using the Cass Valzacchi Human Design Framework
+          — where AI learns your voice, audience, and positioning to craft messaging that actually converts.
+          Or jump straight in with our Consulting AI to build a content strategy on your own terms.
+        </p>
+
+        {/* Product cards */}
         <div className="space-y-4">
-          {/* Brand Building Blueprint - Blue */}
+          {/* Brand Building Blueprint */}
           <button
-            className="w-full rounded-xl bg-[#06264e] px-6 py-5 text-left transition-all hover:bg-[#06264e]/90 hover:shadow-lg"
+            onClick={() => router.push("/brand-building-dna-ai")}
+            className="w-full rounded-xl border border-[#e0d6d0] bg-background px-6 py-6 text-left shadow-sm transition-all hover:shadow-xl"
           >
-            <p className="text-base font-semibold text-white">Brand Building Blueprint AI</p>
-            <p className="mt-1 text-sm text-white/70">(one-time fee of $97)</p>
+            <h3 className="text-lg font-semibold text-foreground">Brand Building Blueprint AI</h3>
+            <p className="mt-1 text-sm text-muted-foreground">$97 one-time fee</p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              An AI-guided experience that walks you through the entire Cass Valzacchi Human Design
+              Framework. You&apos;ll define your brand DNA, nail your messaging, identify your ideal
+              audience, and walk away with a complete brand blueprint ready to execute.
+            </p>
           </button>
 
-          {/* Consulting AI - Red */}
+          {/* Consulting AI */}
           <button
             onClick={onSelectConsulting}
-            className="w-full rounded-xl bg-[#ef4444] px-6 py-5 text-left transition-all hover:bg-[#ef4444]/90 hover:shadow-lg"
+            className="w-full rounded-xl border border-[#e0d6d0] bg-background px-6 py-6 text-left shadow-sm transition-all hover:shadow-xl"
           >
-            <p className="text-base font-semibold text-white">Consulting AI</p>
-            <p className="mt-1 text-sm text-white/70">($15–$35/month)</p>
+            <h3 className="text-lg font-semibold text-foreground">Consulting AI</h3>
+            <p className="mt-1 text-sm text-muted-foreground">$15–$35/month</p>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              Your on-demand marketing strategist. Ask anything about content strategy, ad copy,
+              social media, or brand positioning — and get tailored, actionable advice based on
+              proven frameworks. Perfect for founders and marketers who want expert guidance as they go.
+            </p>
           </button>
         </div>
+
+        {/* Back button */}
+        <button
+          onClick={onBack}
+          className="mt-6 text-sm text-muted-foreground transition-colors hover:text-foreground"
+        >
+          Back
+        </button>
       </div>
     </motion.div>
   );

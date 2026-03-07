@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, Settings, CreditCard, Sparkles, LogOut, Check, Minus, Plus } from "lucide-react";
 import type { User } from "@/lib/types";
+import { useAuth } from "@/components/AuthProvider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,6 +77,7 @@ interface SidebarProfileProps {
 }
 
 export function SidebarProfile({ user }: SidebarProfileProps) {
+  const { signOut } = useAuth();
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [creditAmount, setCreditAmount] = useState(100);
@@ -121,7 +123,7 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
             </DropdownMenuItem>
           </DropdownMenuGroup>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive">
+          <DropdownMenuItem variant="destructive" onSelect={() => signOut()}>
             <LogOut className="h-4 w-4" />
             Sign out
           </DropdownMenuItem>
@@ -138,45 +140,68 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {plans.map((plan) => (
-              <div
-                key={plan.name}
-                className={`relative flex flex-col rounded-xl border p-5 transition-all ${
-                  plan.highlighted
-                    ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10"
-                    : "border-[#e0d6d0] bg-white/40"
-                }`}
-              >
-                {plan.highlighted && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
-                    Most Popular
-                  </span>
-                )}
-                <h3 className="text-sm font-semibold text-foreground">{plan.name}</h3>
-                <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-3xl font-bold text-foreground">{plan.price}</span>
-                  <span className="text-sm text-muted-foreground">{plan.period}</span>
-                </div>
-                <p className="mt-1 text-xs text-muted-foreground">{plan.description}</p>
-                <ul className="mt-4 flex-1 space-y-2">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
-                      <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-                <button
-                  className={`mt-5 w-full rounded-lg py-2 text-sm font-medium transition-all ${
-                    plan.highlighted
-                      ? "bg-[#06264e] text-white hover:bg-[#06264e]/90"
-                      : "border border-[#e0d6d0] text-foreground hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+            {plans.map((plan, idx) => {
+              const currentPlanIdx = user.planName
+                ? plans.findIndex((p) => p.name.toLowerCase() === user.planName!.toLowerCase())
+                : -1;
+              const isCurrent = currentPlanIdx >= 0 && idx === currentPlanIdx;
+              const isUpgrade = currentPlanIdx >= 0 && idx > currentPlanIdx;
+              const isDowngrade = currentPlanIdx >= 0 && idx < currentPlanIdx;
+
+              let ctaText = plan.cta;
+              if (isCurrent) ctaText = "Current Plan";
+              else if (isUpgrade) ctaText = "Upgrade";
+              else if (isDowngrade) ctaText = "Downgrade";
+
+              return (
+                <div
+                  key={plan.name}
+                  className={`relative flex flex-col rounded-xl border p-5 transition-all ${
+                    isCurrent
+                      ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10 ring-2 ring-[#06264e]/20"
+                      : plan.highlighted && !user.planName
+                        ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10"
+                        : "border-[#e0d6d0] bg-white/40"
                   }`}
                 >
-                  {plan.cta}
-                </button>
-              </div>
-            ))}
+                  {isCurrent ? (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                      Current Plan
+                    </span>
+                  ) : plan.highlighted && !user.planName ? (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                      Most Popular
+                    </span>
+                  ) : null}
+                  <h3 className="text-sm font-semibold text-foreground">{plan.name}</h3>
+                  <div className="mt-2 flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-foreground">{plan.price}</span>
+                    <span className="text-sm text-muted-foreground">{plan.period}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">{plan.description}</p>
+                  <ul className="mt-4 flex-1 space-y-2">
+                    {plan.features.map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
+                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    disabled={isCurrent}
+                    className={`mt-5 w-full rounded-lg py-2 text-sm font-medium transition-all ${
+                      isCurrent
+                        ? "cursor-default border border-[#06264e]/30 bg-[#06264e]/5 text-[#06264e] opacity-80"
+                        : isUpgrade || (plan.highlighted && !user.planName)
+                          ? "bg-[#06264e] text-white hover:bg-[#06264e]/90"
+                          : "border border-[#e0d6d0] text-foreground hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+                    }`}
+                  >
+                    {ctaText}
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>

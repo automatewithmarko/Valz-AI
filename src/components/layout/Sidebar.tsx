@@ -39,7 +39,7 @@ export function Sidebar({
 
       {/* Brand DNA */}
       <div className="shrink-0 py-3">
-        <SidebarBrandDNA brandDNA={user.brandDNA} onUploadDocument={onUploadBrandDNADocument} />
+        <SidebarBrandDNA user={user} onUploadDocument={onUploadBrandDNADocument} />
       </div>
 
       <Separator className="mx-3 w-auto shrink-0 bg-border" />
