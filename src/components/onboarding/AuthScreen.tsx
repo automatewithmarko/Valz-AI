@@ -63,14 +63,17 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
       transition={{ duration: 0.3 }}
       className="flex min-h-dvh items-center justify-center bg-background px-4"
     >
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-md">
         {/* Logo */}
-        <div className="mb-8 flex justify-center">
+        <div className="mb-6 flex justify-center">
           <Image src="/logo.png" alt="Valz.AI" width={120} height={120} className="h-auto w-auto" priority />
         </div>
 
-        <p className="mb-4 text-center text-sm text-muted-foreground">
-          Create your account so you can get AI-guided marketing help and maximize your sales
+        <h1 className="mb-3 text-center text-xl font-semibold text-[#06264e]">
+          Welcome to Valzacchi AI
+        </h1>
+        <p className="mb-6 text-center text-sm leading-relaxed text-muted-foreground">
+          Built for founders, creators, and anyone figuring out how to grow online without losing themselves in it. This is where you get clear on your brand, nail what you&apos;re selling, and build content that actually gets results and sounds like nobody but you.
         </p>
 
         {/* Tab toggle */}

@@ -79,14 +79,12 @@ export default function ChooseProgramPage() {
 
         {/* Headline */}
         <h1 className="mb-4 text-2xl font-semibold text-[#06264e]">
-          Choose how you want to continue
+          I&apos;m so glad you&apos;re here!
         </h1>
 
         {/* Description */}
         <p className="mx-auto mb-10 max-w-lg text-sm leading-relaxed text-muted-foreground">
-          Get a complete brand identity built for you using the Cass Valzacchi Human Design Framework
-          — where AI learns your voice, audience, and positioning to craft messaging that actually converts.
-          Or jump straight in with our Consulting AI to build a content strategy on your own terms.
+          Whether you&apos;re here for the first time or you&apos;re back to keep building, this is your space. Pick where you want to start today and let&apos;s get into it.
         </p>
 
         {error && (
@@ -113,12 +111,10 @@ export default function ChooseProgramPage() {
                 Active
               </span>
             )}
-            <h3 className="text-lg font-semibold text-foreground">Brand Building Blueprint AI</h3>
+            <h3 className="text-lg font-semibold text-foreground">Aligned Income AI</h3>
             <p className="mt-1 text-sm text-muted-foreground">$97 one-time fee</p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              An AI-guided experience that walks you through the entire Cass Valzacchi Human Design
-              Framework. You&apos;ll define your brand DNA, nail your messaging, identify your ideal
-              audience, and walk away with a complete brand blueprint ready to execute.
+              Not sure what you could actually sell online? This is where you start. Through a guided discovery process built around your real life experience, skills, and story, and factoring in your Human Design so the direction actually suits how you work best, this tool comes back with digital product ideas that feel specific, realistic, and genuinely aligned with who you are. What&apos;s on the other side of that clarity is income that belongs to you, built from knowledge you already have, and that&apos;s how the life you&apos;ve been picturing starts to become the one you&apos;re actually living.
             </p>
             {activating && (
               <div className="mt-3 flex items-center gap-2 text-xs text-[#06264e]">
@@ -144,12 +140,10 @@ export default function ChooseProgramPage() {
                 Current Plan
               </span>
             )}
-            <h3 className="text-lg font-semibold text-foreground">Consulting AI</h3>
+            <h3 className="text-lg font-semibold text-foreground">The Back Pocket AI</h3>
             <p className="mt-1 text-sm text-muted-foreground">$15–$35/month</p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              Your on-demand marketing strategist. Ask anything about content strategy, ad copy,
-              social media, or brand positioning — and get tailored, actionable advice based on
-              proven frameworks. Perfect for founders and marketers who want expert guidance as they go.
+              Whether you&apos;re building a personal brand or growing a business online, this is the support that sits in your back pocket and shows up whenever you need it. From brand messaging and bios to content pillars, captions, story selling sequences and how to sell without ever feeling pushy about it, this covers the full picture of what it actually takes to grow online. Every piece of guidance is shaped around your brand&apos;s tone and the people you&apos;re trying to reach, so what you put out doesn&apos;t just get seen, it resonates. That&apos;s how you stop just posting and start building something magnetic, a loyal, engaged community that genuinely connects with what you&apos;re putting out and a brand presence that keeps growing because it&apos;s built on something real.
             </p>
           </button>
         </div>
