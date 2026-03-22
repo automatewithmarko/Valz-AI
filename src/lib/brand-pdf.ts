@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 
 const COMPLETION_MARKER = "===BRAND_DNA_COMPLETE===";
+const EDIT_COMPLETION_MARKER = "===BRAND_DNA_EDIT_COMPLETE===";
 
 async function loadLogoAsDataURL(): Promise<string> {
   const res = await fetch("/logo.png");
@@ -13,7 +14,7 @@ async function loadLogoAsDataURL(): Promise<string> {
 }
 
 export async function downloadBrandDNA(content: string) {
-  const clean = content.replace(COMPLETION_MARKER, "").trim();
+  const clean = content.replace(COMPLETION_MARKER, "").replace(EDIT_COMPLETION_MARKER, "").trim();
 
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = pdf.internal.pageSize.getWidth();

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Download, Eye, EyeOff, Home, Loader2, LogOut, Save, User, X } from "lucide-react";
+import { Check, Download, Eye, EyeOff, Home, Loader2, LogOut, Mic, MicOff, Save, User, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -51,37 +51,44 @@ async function streamResponse(
   let fullContent = "";
   let buffer = "";
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed || !trimmed.startsWith("data: ")) continue;
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") continue;
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") continue;
 
-      try {
-        const parsed = JSON.parse(data);
-        const delta = parsed.choices?.[0]?.delta?.content;
-        if (delta) {
-          fullContent += delta;
-          onChunk(fullContent);
+        try {
+          const parsed = JSON.parse(data);
+          const delta = parsed.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullContent += delta;
+            onChunk(fullContent);
+          }
+        } catch {
+          // skip malformed chunks
         }
-      } catch {
-        // skip malformed chunks
       }
     }
+  } catch (err) {
+    // Re-throw abort (user cancellation) so callers can handle it
+    if ((err as Error).name === "AbortError") throw err;
+    // For network drops, timeouts, etc. — return what we have instead of throwing
+    console.error("Stream interrupted:", err);
   }
 
   return fullContent;
 }
 
-// Custom message component for brand building (renders download button)
+// Custom message component for brand building
 function BrandMessage({
   message,
   isComplete,
@@ -89,21 +96,98 @@ function BrandMessage({
   message: Message;
   isComplete: boolean;
 }) {
-  const [, setHovered] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const isUser = message.role === "user";
 
   if (!isUser && !message.content) return null;
 
-  // Clean the completion markers from display
+  // Detect blueprint messages
+  const isBlueprintMessage = !isUser && message.content.includes("# YOUR IDENTITY");
+  const hasCompletionMarker =
+    message.content.includes(COMPLETION_MARKER) ||
+    message.content.includes(EDIT_COMPLETION_MARKER);
+  const isBlueprintComplete = isBlueprintMessage && (hasCompletionMarker || isComplete);
+  const isBlueprintStreaming = isBlueprintMessage && !isBlueprintComplete;
+
+  // Blueprint is being generated — show a loading card instead of the raw text
+  if (isBlueprintStreaming) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="group relative px-4 py-2"
+      >
+        <div className="flex max-w-full items-start gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+            <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
+              <div className="flex items-center gap-3">
+                <Loader2 className="h-5 w-5 animate-spin text-white/70" />
+                <p className="text-sm font-medium">Building your Brand DNA Blueprint...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Blueprint is complete — show success card with download button
+  if (isBlueprintComplete) {
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="group relative px-4 py-2"
+      >
+        <div className="flex max-w-full items-start gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+            <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
+              <p className="text-sm font-semibold">Your Brand DNA Blueprint is ready!</p>
+              <p className="mt-1.5 text-sm text-white/80">
+                I&apos;ve built your complete Identity &rarr; Income Blueprint based on everything you shared with me.
+              </p>
+              <motion.button
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.3 }}
+                disabled={downloading}
+                onClick={async () => {
+                  setDownloading(true);
+                  try {
+                    await downloadBrandDNA(message.content);
+                  } finally {
+                    setDownloading(false);
+                  }
+                }}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0a3a6e] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#0d4a8a] disabled:opacity-70"
+              >
+                {downloading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                {downloading ? "Generating PDF..." : "Download your Brand DNA Blueprint"}
+              </motion.button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
+
+  // Regular messages — render normally
   const displayContent = message.content
     .replace(COMPLETION_MARKER, "")
     .replace(EDIT_COMPLETION_MARKER, "")
     .trim();
-  const hasBlueprint =
-    message.content.includes(COMPLETION_MARKER) ||
-    message.content.includes(EDIT_COMPLETION_MARKER) ||
-    (isComplete && message.content.includes("# YOUR IDENTITY"));
 
   return (
     <motion.div
@@ -111,8 +195,6 @@ function BrandMessage({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: "easeOut" }}
       className={cn("group relative px-4 py-2", isUser ? "flex justify-end" : "")}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
     >
       {isUser ? (
         <div className="max-w-[80%]">
@@ -130,31 +212,6 @@ function BrandMessage({
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {displayContent}
               </ReactMarkdown>
-              {/* Download button inside the message bubble */}
-              {hasBlueprint && (
-                <motion.button
-                  initial={{ opacity: 0, y: 5 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.3, delay: 0.3 }}
-                  disabled={downloading}
-                  onClick={async () => {
-                    setDownloading(true);
-                    try {
-                      await downloadBrandDNA(message.content);
-                    } finally {
-                      setDownloading(false);
-                    }
-                  }}
-                  className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0a3a6e] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#0d4a8a] disabled:opacity-70 not-prose"
-                >
-                  {downloading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  {downloading ? "Generating PDF..." : "Download your Brand DNA Blueprint"}
-                </motion.button>
-              )}
             </div>
           </div>
         </div>
@@ -439,8 +496,70 @@ function BrandInput({
   const { ref, resize } = useAutoResize(200);
   const canSend = value.trim().length > 0 && !isGenerating;
 
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+
+  // Cleanup speech recognition on unmount
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  const toggleListening = useCallback(() => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition is not supported in your browser.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+
+    let finalTranscript = "";
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+      setValue(() => finalTranscript + interim);
+      resize();
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    finalTranscript = value;
+    recognition.start();
+    setIsListening(true);
+  }, [isListening, value, resize]);
+
   const handleSend = useCallback(() => {
     if (!canSend) return;
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+    }
     onSend(value.trim());
     setValue("");
     if (ref.current) {
@@ -448,7 +567,7 @@ function BrandInput({
       ref.current.style.overflowY = "hidden";
     }
     setTimeout(() => ref.current?.focus(), 0);
-  }, [canSend, onSend, value, ref]);
+  }, [canSend, onSend, value, ref, isListening]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -532,7 +651,8 @@ function BrandInput({
           "bg-white/60",
           "border-[#e0d6d0]",
           "focus-within:border-[#c08967]/50",
-          "focus-within:shadow-[0_0_0_1px_rgba(192,137,103,0.15),0_0_15px_rgba(192,137,103,0.08)]"
+          "focus-within:shadow-[0_0_0_1px_rgba(192,137,103,0.15),0_0_15px_rgba(192,137,103,0.08)]",
+          isListening && "border-[#ad0201]/50 shadow-[0_0_0_1px_rgba(173,2,1,0.15),0_0_15px_rgba(173,2,1,0.08)]"
         )}
       >
         <textarea
@@ -543,12 +663,29 @@ function BrandInput({
             resize();
           }}
           onKeyDown={handleKeyDown}
-          placeholder={isEditMode ? "Describe what you'd like to change..." : "Type your answer..."}
+          placeholder={isListening ? "Listening..." : isEditMode ? "Describe what you'd like to change..." : "Type your answer..."}
           rows={1}
           style={{ height: 44, overflowY: "hidden" }}
           className="max-h-[200px] flex-1 resize-none bg-transparent py-3 pl-4 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
           disabled={isGenerating}
         />
+        <button
+          onClick={toggleListening}
+          disabled={isGenerating}
+          className={cn(
+            "mr-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all",
+            isListening
+              ? "bg-[#ad0201] text-white animate-pulse"
+              : "text-muted-foreground hover:bg-[#f2dacb]/40 hover:text-foreground"
+          )}
+          aria-label={isListening ? "Stop listening" : "Voice input"}
+        >
+          {isListening ? (
+            <MicOff className="h-[18px] w-[18px]" />
+          ) : (
+            <Mic className="h-[18px] w-[18px]" />
+          )}
+        </button>
         <button
           onClick={handleSend}
           disabled={!canSend}
@@ -765,15 +902,19 @@ function BrandBuildingContent() {
     )
       .catch((err) => {
         if ((err as Error).name !== "AbortError") {
-          setMessages([
-            userMsg,
-            {
-              id: assistantMsgId,
-              role: "assistant",
-              content: "Sorry, something went wrong. Please try again.",
-              timestamp: new Date(),
-            },
-          ]);
+          setMessages((prev) => {
+            const existing = prev.find((m) => m.id === assistantMsgId);
+            if (existing?.content) return prev; // preserve streamed content
+            return [
+              userMsg,
+              {
+                id: assistantMsgId,
+                role: "assistant",
+                content: "Sorry, something went wrong. Please try again.",
+                timestamp: new Date(),
+              },
+            ];
+          });
         }
       })
       .finally(() => {
@@ -803,23 +944,67 @@ function BrandBuildingContent() {
     abortRef.current = abort;
 
     const currentMessages = [...messages];
+    const apiMessages = currentMessages.map((m) => ({ role: m.role, content: m.content }));
+    const MAX_CONTINUATIONS = 3;
 
-    streamResponse(
-      currentMessages.map((m) => ({ role: m.role, content: m.content })),
-      (text) => {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === assistantMsgId ? { ...m, content: text } : m))
+    (async () => {
+      try {
+        let accumulated = "";
+
+        const initialContent = await streamResponse(
+          apiMessages,
+          (text) => {
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantMsgId ? { ...m, content: text } : m))
+            );
+          },
+          abort.signal
         );
-      },
-      abort.signal
-    )
-      .then(async (finalContent) => {
+        accumulated = initialContent;
+
+        // Auto-continue if blueprint was started but not completed
+        const isBlueprintResponse = accumulated.includes("# YOUR IDENTITY");
+        if (isBlueprintResponse && !accumulated.includes(COMPLETION_MARKER)) {
+          for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
+            const continuationMessages = [
+              ...apiMessages,
+              { role: "assistant", content: accumulated },
+              { role: "user", content: "Continue exactly where you left off. Do not repeat any content already written. Complete the remaining sections of the blueprint." },
+            ];
+
+            const prevAccumulated = accumulated;
+            const continuationContent = await streamResponse(
+              continuationMessages,
+              (text) => {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, content: prevAccumulated + text }
+                      : m
+                  )
+                );
+              },
+              abort.signal
+            );
+            accumulated += continuationContent;
+
+            if (accumulated.includes(COMPLETION_MARKER)) break;
+          }
+        }
+
+        // Final state update
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: accumulated } : m
+          )
+        );
+
         try {
           const saved = await insertBrandDNAChatMessage(supabase, {
             brand_dna_id: brandDnaId,
             user_id: userId,
             role: "assistant",
-            content: finalContent,
+            content: accumulated,
           });
           setMessages((prev) =>
             prev.map((m) => (m.id === assistantMsgId ? { ...m, id: saved.id } : m))
@@ -827,22 +1012,21 @@ function BrandBuildingContent() {
         } catch (err) {
           console.error("Failed to save resumed assistant message:", err);
         }
-      })
-      .catch((err) => {
+      } catch (err) {
         if ((err as Error).name !== "AbortError") {
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, content: "Sorry, something went wrong. Please try again." }
+                ? { ...m, content: m.content || "Sorry, something went wrong. Please try again." }
                 : m
             )
           );
         }
-      })
-      .finally(() => {
+      } finally {
         abortRef.current = null;
         setIsGenerating(false);
-      });
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEditMode, loadingSession, brandDnaId, userId]);
 
@@ -886,20 +1070,23 @@ function BrandBuildingContent() {
         { id: assistantMsgId, role: "assistant", content: "", timestamp: new Date() },
       ]);
 
-      // In edit mode, only send edit-scoped messages (not the full build history)
-      const apiMessages = isEditMode
-        ? updatedMessages.map((m) => ({ role: m.role, content: m.content }))
-        : updatedMessages.map((m) => ({ role: m.role, content: m.content }));
+      const apiMessages = updatedMessages.map((m) => ({ role: m.role, content: m.content }));
 
       const streamOpts = isEditMode
         ? { mode: "edit" as const, brandDnaContent: existingBlueprintContent || "" }
         : undefined;
 
+      const completionMarker = isEditMode ? EDIT_COMPLETION_MARKER : COMPLETION_MARKER;
+      const MAX_CONTINUATIONS = 3;
+
       try {
         const abort = new AbortController();
         abortRef.current = abort;
 
-        const finalContent = await streamResponse(
+        let accumulated = "";
+
+        // Initial stream
+        const initialContent = await streamResponse(
           apiMessages,
           (text) => {
             setMessages((prev) =>
@@ -909,6 +1096,45 @@ function BrandBuildingContent() {
           abort.signal,
           streamOpts
         );
+        accumulated = initialContent;
+
+        // Auto-continue if blueprint was started but not completed (truncated output)
+        const isBlueprintResponse = accumulated.includes("# YOUR IDENTITY");
+        if (isBlueprintResponse && !accumulated.includes(completionMarker)) {
+          for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
+            const continuationMessages = [
+              ...apiMessages,
+              { role: "assistant", content: accumulated },
+              { role: "user", content: "Continue exactly where you left off. Do not repeat any content already written. Complete the remaining sections of the blueprint." },
+            ];
+
+            const prevAccumulated = accumulated;
+            const continuationContent = await streamResponse(
+              continuationMessages,
+              (text) => {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === assistantMsgId
+                      ? { ...m, content: prevAccumulated + text }
+                      : m
+                  )
+                );
+              },
+              abort.signal,
+              streamOpts
+            );
+            accumulated += continuationContent;
+
+            if (accumulated.includes(completionMarker)) break;
+          }
+        }
+
+        // Final state update
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: accumulated } : m
+          )
+        );
 
         // Save assistant message to DB (skip in edit mode)
         if (!isEditMode) {
@@ -917,7 +1143,7 @@ function BrandBuildingContent() {
               brand_dna_id: brandDnaId,
               user_id: userId,
               role: "assistant",
-              content: finalContent,
+              content: accumulated,
             });
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantMsgId ? { ...m, id: saved.id } : m))
@@ -928,10 +1154,11 @@ function BrandBuildingContent() {
         }
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
+          // Preserve any content that was already streamed — never wipe it
           setMessages((prev) =>
             prev.map((m) =>
               m.id === assistantMsgId
-                ? { ...m, content: "Sorry, something went wrong. Please try again." }
+                ? { ...m, content: m.content || "Sorry, something went wrong. Please try again." }
                 : m
             )
           );
@@ -1053,9 +1280,13 @@ function BrandBuildingContent() {
       }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
-        setMessages([
-          { id: assistantMsgId, role: "assistant", content: "Sorry, something went wrong. Please refresh and try again.", timestamp: new Date() },
-        ]);
+        setMessages((prev) => {
+          const existing = prev.find((m) => m.id === assistantMsgId);
+          if (existing?.content) return prev; // preserve streamed content
+          return [
+            { id: assistantMsgId, role: "assistant", content: "Sorry, something went wrong. Please refresh and try again.", timestamp: new Date() },
+          ];
+        });
       }
     } finally {
       abortRef.current = null;

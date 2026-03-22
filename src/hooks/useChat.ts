@@ -104,6 +104,36 @@ export function useChat() {
     loadChats();
   }, [user, loaded, supabase]);
 
+  // Refresh chat list when tab regains focus (merge without losing loaded messages)
+  useEffect(() => {
+    if (!user || !loaded) return;
+
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const dbChats = await getChats(supabase, user.id);
+        setChats((prev) => {
+          const existingById = new Map(prev.map((c) => [c.id, c]));
+          return dbChats.map((c) => {
+            const existing = existingById.get(c.id);
+            return {
+              id: c.id,
+              title: c.title,
+              messages: existing?.messages ?? [],
+              createdAt: new Date(c.created_at),
+              updatedAt: new Date(c.updated_at),
+            };
+          });
+        });
+      } catch (err) {
+        console.error("Failed to refresh chats:", err);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [user, loaded, supabase]);
+
   // Load messages when selecting a chat
   const selectChat = useCallback(
     async (chatId: string) => {

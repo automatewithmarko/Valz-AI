@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { Download, FileText, Loader2, Pencil } from "lucide-react";
 import type { User } from "@/lib/types";
 import { downloadBrandDNA } from "@/lib/brand-pdf";
+import { createClient } from "@/lib/supabase/client";
+import { getPrimaryBrandDNA } from "@/lib/supabase/db";
 import {
   Dialog,
   DialogContent,
@@ -26,7 +28,10 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const content = localStorage.getItem("brandDNAContent");
+      // Fetch fresh content from Supabase (primary source)
+      const supabase = createClient();
+      const dna = await getPrimaryBrandDNA(supabase, user.id);
+      const content = dna?.blueprint_content || localStorage.getItem("brandDNAContent");
       if (content) {
         await downloadBrandDNA(content);
       }

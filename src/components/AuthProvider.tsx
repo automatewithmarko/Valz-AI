@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -114,13 +115,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [supabase]
   );
 
+  const refreshingRef = useRef(false);
+
   const refreshUser = useCallback(async () => {
-    const {
-      data: { user: sbUser },
-    } = await supabase.auth.getUser();
-    if (sbUser) {
-      const appUser = await buildUser(sbUser);
-      setUser(appUser);
+    if (refreshingRef.current) return;
+    refreshingRef.current = true;
+    try {
+      const {
+        data: { user: sbUser },
+      } = await supabase.auth.getUser();
+      if (sbUser) {
+        const appUser = await buildUser(sbUser);
+        setUser(appUser);
+      }
+    } finally {
+      refreshingRef.current = false;
     }
   }, [supabase, buildUser]);
 
@@ -162,6 +171,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       subscription.unsubscribe();
     };
   }, [supabase, buildUser]);
+
+  // Refresh user data when tab regains focus & periodically every 10 minutes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && session) {
+        refreshUser();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    const interval = setInterval(() => {
+      if (session) refreshUser();
+    }, 10 * 60 * 1000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(interval);
+    };
+  }, [session, refreshUser]);
 
   const signUp = useCallback(
     async (email: string, password: string, fullName: string) => {
