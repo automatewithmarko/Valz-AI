@@ -611,34 +611,9 @@ function BrandInput({
     );
   }
 
-  // Build mode: show CTA after blueprint is complete
+  // Build mode: hide input after blueprint is complete (CTA is in the message card)
   if (isComplete && !isEditMode) {
-    return (
-      <div className="mx-auto w-full max-w-3xl px-4 pb-4">
-        <motion.button
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3 }}
-          onClick={() => {
-            if (hasSubscription) {
-              router.push("/valzacchi-ai");
-            } else {
-              onGetMarketing();
-            }
-          }}
-          className="w-full rounded-2xl bg-[#06264e] py-4 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 flex items-center justify-center gap-2"
-        >
-          {hasSubscription ? (
-            <>
-              <Home className="h-4 w-4" />
-              Go to Back Pocket AI
-            </>
-          ) : (
-            "Get Marketing AI"
-          )}
-        </motion.button>
-      </div>
-    );
+    return null;
   }
 
   return (
