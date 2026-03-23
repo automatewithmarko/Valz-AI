@@ -92,11 +92,14 @@ async function streamResponse(
 function BrandMessage({
   message,
   isComplete,
+  hasSubscription,
 }: {
   message: Message;
   isComplete: boolean;
+  hasSubscription: boolean;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const router = useRouter();
   const isUser = message.role === "user";
 
   if (!isUser && !message.content) return null;
@@ -126,7 +129,7 @@ function BrandMessage({
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
               <div className="flex items-center gap-3">
                 <Loader2 className="h-5 w-5 animate-spin text-white/70" />
-                <p className="text-sm font-medium">Building your Brand DNA Blueprint...</p>
+                <p className="text-sm font-medium">Building your Aligned Income Blueprint...</p>
               </div>
             </div>
           </div>
@@ -135,7 +138,7 @@ function BrandMessage({
     );
   }
 
-  // Blueprint is complete — show success card with download button
+  // Blueprint is complete — show success card with download button and Back Pocket AI CTA
   if (isBlueprintComplete) {
     return (
       <motion.div
@@ -150,9 +153,9 @@ function BrandMessage({
           </div>
           <div className="min-w-0 flex-1">
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
-              <p className="text-sm font-semibold">Your Brand DNA Blueprint is ready!</p>
+              <p className="text-sm font-semibold">Your Aligned Income Blueprint is complete!</p>
               <p className="mt-1.5 text-sm text-white/80">
-                I&apos;ve built your complete Identity &rarr; Income Blueprint based on everything you shared with me.
+                I&apos;ve built your completely personalised blueprint to create income online in total alignment with how you best operate, harnessing what you&apos;re already naturally good at and your unique life experiences. This is all ready for you to follow the blueprint and start making an incredible income in the most aligned way.
               </p>
               <motion.button
                 initial={{ opacity: 0, y: 5 }}
@@ -174,7 +177,25 @@ function BrandMessage({
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                {downloading ? "Generating PDF..." : "Download your Brand DNA Blueprint"}
+                {downloading ? "Generating PDF..." : "Download Your Aligned Income Blueprint"}
+              </motion.button>
+              <p className="mt-4 text-sm text-white/80">
+                Ready to keep the momentum going? Because this is just the beginning. Now that you know what you&apos;re building, <strong className="text-white">The Back Pocket AI</strong> helps you bring it to life. From fleshing out your offer and nailing your messaging to mapping out a full social media launch plan, it&apos;s your on-demand strategist for everything that comes next. The idea is yours. Let&apos;s go build it.
+              </p>
+              <motion.button
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.5 }}
+                onClick={() => {
+                  if (hasSubscription) {
+                    router.push("/valzacchi-ai");
+                  } else {
+                    router.push("/choose-your-plan");
+                  }
+                }}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-[#0a3a6e] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#0d4a8a]"
+              >
+                {hasSubscription ? "Go to Back Pocket AI" : "Get the Back Pocket AI"}
               </motion.button>
             </div>
           </div>
@@ -216,29 +237,6 @@ function BrandMessage({
           </div>
         </div>
       )}
-    </motion.div>
-  );
-}
-
-// Congrats message shown after the blueprint
-function CongratsMessage() {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.5 }}
-      className="px-4 py-2"
-    >
-      <div className="flex max-w-full items-start gap-3">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-          <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="rounded-2xl bg-[#06264e] px-4 py-3 text-sm leading-relaxed text-white">
-            Congratulations on building your Brand DNA! To get the most out of it, we encourage you to use our Marketing AI Assistant to help you turn it into actionable daily advice!
-          </div>
-        </div>
-      </div>
     </motion.div>
   );
 }
@@ -448,7 +446,7 @@ function ProfileModal({
               className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90"
             >
               <Home className="h-3.5 w-3.5" />
-              Home
+              Go to Back Pocket AI
             </button>
           ) : (
             <button
@@ -633,7 +631,7 @@ function BrandInput({
           {hasSubscription ? (
             <>
               <Home className="h-4 w-4" />
-              Home
+              Go to Back Pocket AI
             </>
           ) : (
             "Get Marketing AI"
@@ -1368,7 +1366,7 @@ function BrandBuildingContent() {
               className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[#f2dacb]/50 hover:text-foreground"
             >
               <Home className="h-3.5 w-3.5" />
-              Home
+              Go to Back Pocket AI
             </button>
           )}
           <button
@@ -1471,7 +1469,7 @@ function BrandBuildingContent() {
               className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[#f2dacb]/50 hover:text-foreground"
             >
               <Home className="h-3.5 w-3.5" />
-              Home
+              Go to Back Pocket AI
             </button>
           )}
           <button
@@ -1501,9 +1499,9 @@ function BrandBuildingContent() {
                   key={msg.id}
                   message={msg}
                   isComplete={isEditMode ? isEditComplete : isComplete}
+                  hasSubscription={hasSubscription}
                 />
               ))}
-              {isComplete && !isEditMode && <CongratsMessage />}
               {isEditComplete && isEditMode && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
