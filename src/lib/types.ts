@@ -19,6 +19,7 @@ export interface User {
   id: string;
   name: string;
   email: string;
+  avatarUrl: string | null;
   credits: number;
   maxCredits: number;
   brandDNA: BrandDNA;

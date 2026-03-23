@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, Settings, CreditCard, Sparkles, LogOut, Check, Minus, Plus } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import Image from "next/image";
+import { ChevronDown, Settings, CreditCard, Sparkles, LogOut, Check, Minus, Plus, Camera, Loader2, Eye, EyeOff } from "lucide-react";
 import type { User } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
+import { createClient } from "@/lib/supabase/client";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,10 +79,21 @@ interface SidebarProfileProps {
 }
 
 export function SidebarProfile({ user }: SidebarProfileProps) {
-  const { signOut } = useAuth();
+  const { signOut, refreshUser } = useAuth();
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [creditAmount, setCreditAmount] = useState(100);
+
+  // Settings form state
+  const [editName, setEditName] = useState(user.name);
+  const [newPassword, setNewPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [settingsMessage, setSettingsMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const initials = user.name
     .split(" ")
@@ -90,14 +103,125 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
 
   const totalPrice = (creditAmount * CREDIT_PRICE).toFixed(2);
 
+  const handleOpenSettings = useCallback(() => {
+    setEditName(user.name);
+    setNewPassword("");
+    setShowPassword(false);
+    setSettingsMessage(null);
+    setSettingsOpen(true);
+  }, [user.name]);
+
+  const handleSaveName = useCallback(async () => {
+    if (!editName.trim() || editName.trim() === user.name) return;
+    setSavingName(true);
+    setSettingsMessage(null);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("profiles")
+        .update({ full_name: editName.trim() })
+        .eq("id", user.id);
+      if (error) throw error;
+      await refreshUser();
+      setSettingsMessage({ type: "success", text: "Name updated." });
+    } catch {
+      setSettingsMessage({ type: "error", text: "Failed to update name." });
+    } finally {
+      setSavingName(false);
+    }
+  }, [editName, user.name, user.id, refreshUser]);
+
+  const handleChangePassword = useCallback(async () => {
+    if (newPassword.length < 6) {
+      setSettingsMessage({ type: "error", text: "Password must be at least 6 characters." });
+      return;
+    }
+    setSavingPassword(true);
+    setSettingsMessage(null);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) throw error;
+      setNewPassword("");
+      setSettingsMessage({ type: "success", text: "Password changed." });
+    } catch {
+      setSettingsMessage({ type: "error", text: "Failed to change password." });
+    } finally {
+      setSavingPassword(false);
+    }
+  }, [newPassword]);
+
+  const handleAvatarUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type and size
+    if (!file.type.startsWith("image/")) {
+      setSettingsMessage({ type: "error", text: "Please select an image file." });
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setSettingsMessage({ type: "error", text: "Image must be under 2MB." });
+      return;
+    }
+
+    setUploadingAvatar(true);
+    setSettingsMessage(null);
+    try {
+      const supabase = createClient();
+      const ext = file.name.split(".").pop() || "png";
+      const filePath = `${user.id}/avatar.${ext}`;
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      // Get public URL
+      const { data: urlData } = supabase.storage
+        .from("avatars")
+        .getPublicUrl(filePath);
+
+      // Add cache-buster to force refresh
+      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+
+      // Update profile
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ avatar_url: publicUrl })
+        .eq("id", user.id);
+      if (profileError) throw profileError;
+
+      await refreshUser();
+      setSettingsMessage({ type: "success", text: "Photo updated." });
+    } catch {
+      setSettingsMessage({ type: "error", text: "Failed to upload photo." });
+    } finally {
+      setUploadingAvatar(false);
+      // Reset file input
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [user.id, refreshUser]);
+
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-[#f2dacb]/30">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#06264e] text-xs font-semibold text-white">
-              {initials}
-            </div>
+            {user.avatarUrl ? (
+              <Image
+                src={user.avatarUrl}
+                alt={user.name}
+                width={32}
+                height={32}
+                className="h-8 w-8 shrink-0 rounded-full object-cover"
+              />
+            ) : (
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#06264e] text-xs font-semibold text-white">
+                {initials}
+              </div>
+            )}
             <div className="min-w-0 flex-1 text-left">
               <p className="truncate text-sm font-semibold text-foreground">
                 {user.name}
@@ -109,7 +233,7 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" sideOffset={8} className="w-56">
           <DropdownMenuGroup>
-            <DropdownMenuItem>
+            <DropdownMenuItem onSelect={handleOpenSettings}>
               <Settings className="h-4 w-4" />
               Settings
             </DropdownMenuItem>
@@ -129,6 +253,124 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {/* Settings modal */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Settings</DialogTitle>
+            <DialogDescription>
+              Update your profile and account settings.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-6 py-2">
+            {/* Avatar */}
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative">
+                {user.avatarUrl ? (
+                  <Image
+                    src={user.avatarUrl}
+                    alt={user.name}
+                    width={80}
+                    height={80}
+                    className="h-20 w-20 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-[#06264e] text-xl font-semibold text-white">
+                    {initials}
+                  </div>
+                )}
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                  className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-[#06264e] text-white transition-colors hover:bg-[#06264e]/80 disabled:opacity-50"
+                >
+                  {uploadingAvatar ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Camera className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleAvatarUpload}
+                  className="hidden"
+                />
+              </div>
+            </div>
+
+            {/* Name */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="flex-1 rounded-lg border border-[#e0d6d0] bg-white px-3 py-2 text-sm text-foreground outline-none transition-colors focus:border-[#c08967]/50"
+                />
+                <button
+                  onClick={handleSaveName}
+                  disabled={savingName || !editName.trim() || editName.trim() === user.name}
+                  className="rounded-lg bg-[#06264e] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-50"
+                >
+                  {savingName ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+                </button>
+              </div>
+            </div>
+
+            {/* Email (read-only) */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Email</label>
+              <input
+                type="email"
+                value={user.email}
+                readOnly
+                className="rounded-lg border border-[#e0d6d0] bg-[#f9f7f5] px-3 py-2 text-sm text-muted-foreground outline-none"
+              />
+            </div>
+
+            {/* Password */}
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Change password</label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="New password"
+                    className="w-full rounded-lg border border-[#e0d6d0] bg-white px-3 py-2 pr-10 text-sm text-foreground outline-none transition-colors focus:border-[#c08967]/50"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+                <button
+                  onClick={handleChangePassword}
+                  disabled={savingPassword || !newPassword}
+                  className="rounded-lg bg-[#06264e] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-50"
+                >
+                  {savingPassword ? <Loader2 className="h-4 w-4 animate-spin" /> : "Change"}
+                </button>
+              </div>
+            </div>
+
+            {/* Status message */}
+            {settingsMessage && (
+              <p className={`text-center text-sm ${settingsMessage.type === "success" ? "text-green-600" : "text-red-500"}`}>
+                {settingsMessage.text}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Subscription modal */}
       <Dialog open={subscriptionOpen} onOpenChange={setSubscriptionOpen}>

@@ -79,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: profile.id,
           name: profile.full_name,
           email: profile.email,
+          avatarUrl: profile.avatar_url,
           credits: credits?.balance ?? 0,
           maxCredits: Math.max(credits?.lifetime_purchased ?? 0, credits?.balance ?? 0, 100),
           brandDNA,
@@ -97,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             sbUser.email?.split("@")[0] ||
             "User",
           email: sbUser.email || "",
+          avatarUrl: null,
           credits: 0,
           maxCredits: 100,
           brandDNA: {
