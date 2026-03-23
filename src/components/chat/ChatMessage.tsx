@@ -34,7 +34,7 @@ export function ChatMessage({ message, isLast, onRegenerate }: ChatMessageProps)
       {isUser ? (
         /* User message */
         <div className="max-w-[80%]">
-          <div className="rounded-2xl bg-[#87a8d3] px-4 py-2.5 text-sm text-[#06264e]">
+          <div className="rounded-2xl bg-[#87a8d3] px-4 py-2.5 text-sm text-white">
             <p className="whitespace-pre-wrap">{message.content}</p>
           </div>
           <AnimatePresence>
