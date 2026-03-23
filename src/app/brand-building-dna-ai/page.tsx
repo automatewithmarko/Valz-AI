@@ -120,7 +120,7 @@ function BrandMessage({
       >
         <div className="flex max-w-full items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-            <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+            <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
@@ -146,7 +146,7 @@ function BrandMessage({
       >
         <div className="flex max-w-full items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-            <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+            <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
@@ -198,14 +198,14 @@ function BrandMessage({
     >
       {isUser ? (
         <div className="max-w-[80%]">
-          <div className="rounded-2xl bg-[#f2dacb] px-4 py-2.5 text-sm text-[#c08967]">
+          <div className="rounded-2xl bg-[#87a8d3] px-4 py-2.5 text-sm text-[#06264e]">
             <p className="whitespace-pre-wrap">{message.content}</p>
           </div>
         </div>
       ) : (
         <div className="flex max-w-full items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-            <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+            <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="rounded-2xl bg-[#06264e] px-4 py-3 text-white prose prose-sm prose-invert max-w-none prose-headings:font-semibold prose-headings:text-white prose-p:leading-relaxed prose-p:text-white prose-strong:text-white prose-table:text-sm prose-th:py-2 prose-th:px-3 prose-th:text-white prose-td:py-2 prose-td:px-3 prose-td:text-white/90 prose-blockquote:border-l-white/40 prose-blockquote:not-italic prose-blockquote:text-white/90 prose-li:text-white/90 prose-a:text-blue-300 prose-code:text-blue-200 prose-hr:border-white/20">
@@ -231,7 +231,7 @@ function CongratsMessage() {
     >
       <div className="flex max-w-full items-start gap-3">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-          <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+          <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
         </div>
         <div className="min-w-0 flex-1">
           <div className="rounded-2xl bg-[#06264e] px-4 py-3 text-sm leading-relaxed text-white">
@@ -1395,7 +1395,7 @@ function BrandBuildingContent() {
             className="text-center"
           >
             <div className="mb-4 flex justify-center">
-              <Image src="/logo.png" alt="Valz.AI" width={180} height={180} className="h-auto w-auto" priority />
+              <Image src="/logo.png" alt="Valzacchi.ai" width={180} height={180} className="h-auto w-auto" priority />
             </div>
             <h1 className="mb-2 text-2xl font-semibold text-[#06264e]">Brand Building Blueprint</h1>
             <p className="mx-auto mb-8 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -1513,7 +1513,7 @@ function BrandBuildingContent() {
                 >
                   <div className="flex max-w-full items-start gap-3">
                     <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-                      <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+                      <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="rounded-2xl bg-[#06264e] px-4 py-3 text-sm leading-relaxed text-white">
