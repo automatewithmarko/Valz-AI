@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { Download, FileText, Loader2, Pencil } from "lucide-react";
+import { Download, FileText, Loader2, Pencil, Plus } from "lucide-react";
 import type { User } from "@/lib/types";
 import { downloadBrandDNA } from "@/lib/brand-pdf";
 import { createClient } from "@/lib/supabase/client";
@@ -52,7 +52,7 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
   return (
     <div className="mx-3 rounded-lg border border-border bg-[#f2dacb]/20 p-3">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-        Brand DNA
+        Aligned Income Blueprint
       </p>
       {brandDNA.configured ? (
         <div className="space-y-2">
@@ -70,23 +70,23 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
             <DialogTrigger asChild>
               <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30">
                 <FileText className="h-3.5 w-3.5" />
-                View Brand DNA
+                View Aligned Income Blueprint
               </button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-md">
               <div className="flex flex-col items-center px-4 py-6 text-center">
                 <Image
                   src="/logo.png"
-                  alt="Valz.AI"
+                  alt="Valzacchi.ai"
                   width={80}
                   height={80}
                   className="mb-6 h-auto w-auto"
                 />
                 <h2 className="mb-3 text-xl font-semibold text-foreground">
-                  Your Brand DNA
+                  Your Aligned Income Blueprint
                 </h2>
                 <p className="mb-6 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                  Your Brand DNA Blueprint is ready. Download it as a styled PDF or edit it by going through the process again.
+                  Your Aligned Income Blueprint is ready. Download it as a styled PDF, edit it, or start fresh with a new one.
                 </p>
                 <div className="flex w-full flex-col gap-3">
                   <button
@@ -99,14 +99,21 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
                     ) : (
                       <Download className="h-4 w-4" />
                     )}
-                    {downloading ? "Generating PDF..." : "Download Brand DNA"}
+                    {downloading ? "Generating PDF..." : "Download Aligned Income Blueprint"}
                   </button>
                   <button
                     onClick={() => router.push("/brand-building-dna-ai?mode=edit")}
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
                   >
                     <Pencil className="h-4 w-4" />
-                    Edit Brand DNA
+                    Edit Aligned Income Blueprint
+                  </button>
+                  <button
+                    onClick={() => router.push("/brand-building-dna-ai?mode=new")}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Create New Aligned Income Blueprint
                   </button>
                 </div>
               </div>
