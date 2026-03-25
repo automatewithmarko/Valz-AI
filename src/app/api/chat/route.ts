@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
-const SYSTEM_PROMPT = `You are Valz.AI, an expert AI-powered brand valuation and analysis assistant. You help users understand, measure, and grow their brand's value.
+const SYSTEM_PROMPT = `You are Valzacchi.ai, an expert AI-powered brand valuation and analysis assistant. You help users understand, measure, and grow their brand's value.
 
 Your capabilities include:
 - Estimating brand valuations using industry-standard methodologies

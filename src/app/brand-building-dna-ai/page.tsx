@@ -105,7 +105,7 @@ function BrandMessage({
   if (!isUser && !message.content) return null;
 
   // Detect blueprint messages
-  const isBlueprintMessage = !isUser && message.content.includes("# YOUR IDENTITY");
+  const isBlueprintMessage = !isUser && message.content.includes("# YOUR ALIGNED INCOME BLUEPRINT");
   const hasCompletionMarker =
     message.content.includes(COMPLETION_MARKER) ||
     message.content.includes(EDIT_COMPLETION_MARKER);
@@ -936,7 +936,7 @@ function BrandBuildingContent() {
         accumulated = initialContent;
 
         // Auto-continue if blueprint was started but not completed
-        const isBlueprintResponse = accumulated.includes("# YOUR IDENTITY");
+        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
         if (isBlueprintResponse && !accumulated.includes(COMPLETION_MARKER)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [
@@ -1072,7 +1072,7 @@ function BrandBuildingContent() {
         accumulated = initialContent;
 
         // Auto-continue if blueprint was started but not completed (truncated output)
-        const isBlueprintResponse = accumulated.includes("# YOUR IDENTITY");
+        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
         if (isBlueprintResponse && !accumulated.includes(completionMarker)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [

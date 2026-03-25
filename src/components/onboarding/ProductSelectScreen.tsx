@@ -24,7 +24,7 @@ export function ProductSelectScreen({ onSelectConsulting, onBack }: ProductSelec
       <div className="w-full max-w-xl text-center">
         {/* Logo */}
         <div className="mb-1 flex justify-center">
-          <Image src="/logo.png" alt="Valz.AI" width={200} height={200} className="h-auto w-auto" priority />
+          <Image src="/logo.png" alt="Valzacchi.ai" width={200} height={200} className="h-auto w-auto" priority />
         </div>
 
         {/* Headline */}

@@ -146,7 +146,7 @@ export function ChatInput({ onSend, isGenerating, initialValue }: ChatInputProps
             resize();
           }}
           onKeyDown={handleKeyDown}
-          placeholder={isListening ? "Listening..." : "Message Valz.AI..."}
+          placeholder={isListening ? "Listening..." : "Message Valzacchi.ai..."}
           rows={1}
           style={{ height: 44, overflowY: "hidden" }}
           className="max-h-[200px] flex-1 resize-none bg-transparent py-3 pl-1 pr-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
@@ -190,7 +190,7 @@ export function ChatInput({ onSend, isGenerating, initialValue }: ChatInputProps
 
       {/* Disclaimer */}
       <p className="mt-2 text-center text-[11px] text-muted-foreground/60">
-        Valz.AI can make mistakes. Verify important brand data.
+        Valzacchi.ai can make mistakes. Verify important brand data.
       </p>
     </div>
   );

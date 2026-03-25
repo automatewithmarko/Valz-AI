@@ -66,7 +66,7 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
       <div className="w-full max-w-md">
         {/* Logo */}
         <div className="mb-6 flex justify-center">
-          <Image src="/logo.png" alt="Valz.AI" width={120} height={120} className="h-auto w-auto" priority />
+          <Image src="/logo.png" alt="Valzacchi.ai" width={120} height={120} className="h-auto w-auto" priority />
         </div>
 
         <h1 className="mb-3 text-center text-xl font-semibold text-[#06264e]">

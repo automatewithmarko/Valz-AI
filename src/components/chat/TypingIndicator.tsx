@@ -7,7 +7,7 @@ export function TypingIndicator() {
   return (
     <div className="flex items-start gap-3 px-4">
       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
-        <Image src="/AgentPhoto.png" alt="Valz.AI" width={28} height={28} className="h-7 w-7 object-cover" />
+        <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
       </div>
       <div className="flex items-center gap-1 rounded-2xl bg-[#06264e] px-4 py-3">
         {[0, 1, 2].map((i) => (

@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Valz.AI — AI-Powered Brand Valuation",
+  title: "Valzacchi.ai — AI-Powered Brand Valuation",
   description:
     "Get instant, AI-powered insights into your brand's value. Analyze brand DNA, track equity, and compare with competitors.",
   icons: {

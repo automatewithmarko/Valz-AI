@@ -25,7 +25,7 @@ export function ChatWelcome({ onSuggestionClick }: ChatWelcomeProps) {
     >
       {/* Logo */}
       <div className="mb-6">
-        <Image src="/logo.png" alt="Valz.AI" width={180} height={180} className="h-auto w-auto" priority />
+        <Image src="/logo.png" alt="Valzacchi.ai" width={180} height={180} className="h-auto w-auto" priority />
       </div>
 
       {/* Subtitle */}

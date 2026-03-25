@@ -14,7 +14,21 @@ async function loadLogoAsDataURL(): Promise<string> {
 }
 
 export async function downloadBrandDNA(content: string) {
-  const clean = content.replace(COMPLETION_MARKER, "").replace(EDIT_COMPLETION_MARKER, "").trim();
+  let clean = content.replace(COMPLETION_MARKER, "").replace(EDIT_COMPLETION_MARKER, "").trim();
+
+  // Strip any AI preamble text before the first heading
+  const firstHeadingIdx = clean.indexOf("\n# ");
+  if (firstHeadingIdx > 0) {
+    clean = clean.substring(firstHeadingIdx + 1).trim();
+  } else if (clean.startsWith("# ")) {
+    // Already starts with heading, no preamble to strip
+  } else {
+    // Try to find heading without newline prefix (edge case)
+    const altIdx = clean.indexOf("# YOUR ALIGNED INCOME BLUEPRINT");
+    if (altIdx > 0) {
+      clean = clean.substring(altIdx).trim();
+    }
+  }
 
   const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -54,7 +68,7 @@ export async function downloadBrandDNA(content: string) {
   pdf.setFont("helvetica", "bold");
   pdf.setFontSize(24);
   pdf.setTextColor(6, 38, 78);
-  const titleText = "Your Brand DNA";
+  const titleText = "Your Aligned Income Blueprint";
   const titleWidth = pdf.getTextWidth(titleText);
   pdf.text(titleText, (pageWidth - titleWidth) / 2, y);
   y += 6;
@@ -229,5 +243,5 @@ export async function downloadBrandDNA(content: string) {
     y += 2;
   }
 
-  pdf.save("Your_Brand_DNA.pdf");
+  pdf.save("Your_Aligned_Income_Blueprint.pdf");
 }

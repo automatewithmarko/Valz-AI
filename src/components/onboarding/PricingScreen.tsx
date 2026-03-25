@@ -88,7 +88,7 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
     >
       {/* Logo */}
       <div className="mb-6 flex justify-center">
-        <Image src="/logo.png" alt="Valz.AI" width={80} height={80} className="h-auto w-auto" priority />
+        <Image src="/logo.png" alt="Valzacchi.ai" width={80} height={80} className="h-auto w-auto" priority />
       </div>
 
       {/* Headline */}
