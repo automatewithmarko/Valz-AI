@@ -93,10 +93,12 @@ function BrandMessage({
   message,
   isComplete,
   hasSubscription,
+  blueprintContent,
 }: {
   message: Message;
   isComplete: boolean;
   hasSubscription: boolean;
+  blueprintContent?: string | null;
 }) {
   const [downloading, setDownloading] = useState(false);
   const router = useRouter();
@@ -104,15 +106,15 @@ function BrandMessage({
 
   if (!isUser && !message.content) return null;
 
-  // Detect blueprint messages
-  const isBlueprintMessage = !isUser && message.content.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+  // Detect Phase 4 blueprint messages (Steps 8+)
   const hasCompletionMarker =
     message.content.includes(COMPLETION_MARKER) ||
     message.content.includes(EDIT_COMPLETION_MARKER);
-  const isBlueprintComplete = isBlueprintMessage && (hasCompletionMarker || isComplete);
-  const isBlueprintStreaming = isBlueprintMessage && !isBlueprintComplete;
+  const isPhase4 = !isUser && /## Step (8|9|1[0-5]):/.test(message.content);
+  const isBlueprintComplete = isPhase4 && (hasCompletionMarker || isComplete);
+  const isBlueprintStreaming = isPhase4 && !isBlueprintComplete;
 
-  // Blueprint is being generated — show a loading card instead of the raw text
+  // Phase 4 is being generated — show a loading card
   if (isBlueprintStreaming) {
     return (
       <motion.div
@@ -129,7 +131,7 @@ function BrandMessage({
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
               <div className="flex items-center gap-3">
                 <Loader2 className="h-5 w-5 animate-spin text-white/70" />
-                <p className="text-sm font-medium">Building your Aligned Income Blueprint...</p>
+                <p className="text-sm font-medium">Mapping out your content and monetisation strategy...</p>
               </div>
             </div>
           </div>
@@ -165,7 +167,7 @@ function BrandMessage({
                 onClick={async () => {
                   setDownloading(true);
                   try {
-                    await downloadBrandDNA(message.content);
+                    await downloadBrandDNA(blueprintContent || message.content);
                   } finally {
                     setDownloading(false);
                   }
@@ -718,6 +720,7 @@ function BrandBuildingContent() {
   const [isEditComplete, setIsEditComplete] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [existingBlueprintContent, setExistingBlueprintContent] = useState<string | null>(null);
+  const [fullBlueprintContent, setFullBlueprintContent] = useState<string | null>(null);
   const needsAutoEditRef = useRef(false);
   // Tracks the message ID that already triggered edit-complete so the
   // detection effect won't re-fire for the same message after "Continue Editing".
@@ -752,6 +755,9 @@ function BrandBuildingContent() {
             // ── Build mode (original logic) ────────────────────────
             if (existing.status === "active") {
               setIsComplete(true);
+              if (existing.blueprint_content) {
+                setFullBlueprintContent(existing.blueprint_content);
+              }
               try {
                 localStorage.setItem("brandDNAContent", existing.blueprint_content || "");
               } catch {
@@ -797,20 +803,31 @@ function BrandBuildingContent() {
     scrollToBottomIfNeeded();
   }, [messages.length, lastMessageContent, scrollToBottomIfNeeded]);
 
-  // Detect build-mode completion marker in any assistant message + save to DB
+  // Detect build-mode completion marker + combine all blueprint phases + save to DB
   useEffect(() => {
     if (isEditMode || isComplete || !brandDnaId || !userId) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (lastAssistant?.content.includes(COMPLETION_MARKER)) {
       setIsComplete(true);
+
+      // Combine all assistant messages that contain blueprint step headings
+      const blueprintMessages = messages.filter(
+        (m) => m.role === "assistant" && /## Step \d+:/.test(m.content)
+      );
+      const combinedContent = "# YOUR ALIGNED INCOME BLUEPRINT\n\n" +
+        blueprintMessages
+          .map((m) => m.content.replace(COMPLETION_MARKER, "").trim())
+          .join("\n\n");
+
+      setFullBlueprintContent(combinedContent);
       try {
-        localStorage.setItem("brandDNAContent", lastAssistant.content);
+        localStorage.setItem("brandDNAContent", combinedContent);
       } catch {
         // localStorage may be unavailable
       }
       updateBrandDNA(supabase, brandDnaId, {
         status: "active",
-        blueprint_content: lastAssistant.content,
+        blueprint_content: combinedContent,
         brand_name: authUser?.name || "",
       }).then(() => refreshUser()).catch((err) => console.error("Failed to save brand DNA:", err));
     }
@@ -935,9 +952,9 @@ function BrandBuildingContent() {
         );
         accumulated = initialContent;
 
-        // Auto-continue if blueprint was started but not completed
-        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
-        if (isBlueprintResponse && !accumulated.includes(COMPLETION_MARKER)) {
+        // Auto-continue only if Phase 4 (Steps 8+) was started but not completed
+        const isPhase4Response = /## Step (8|9|1[0-5]):/.test(accumulated);
+        if (isPhase4Response && !accumulated.includes(COMPLETION_MARKER)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [
               ...apiMessages,
@@ -1071,9 +1088,9 @@ function BrandBuildingContent() {
         );
         accumulated = initialContent;
 
-        // Auto-continue if blueprint was started but not completed (truncated output)
-        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
-        if (isBlueprintResponse && !accumulated.includes(completionMarker)) {
+        // Auto-continue only if Phase 4 (Steps 8+) was started but not completed (truncated output)
+        const isPhase4Response = /## Step (8|9|1[0-5]):/.test(accumulated);
+        if (isPhase4Response && !accumulated.includes(completionMarker)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [
               ...apiMessages,
@@ -1475,6 +1492,7 @@ function BrandBuildingContent() {
                   message={msg}
                   isComplete={isEditMode ? isEditComplete : isComplete}
                   hasSubscription={hasSubscription}
+                  blueprintContent={fullBlueprintContent}
                 />
               ))}
               {isEditComplete && isEditMode && (
