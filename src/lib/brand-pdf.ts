@@ -14,7 +14,11 @@ async function loadLogoAsDataURL(): Promise<string> {
 }
 
 export async function downloadBrandDNA(content: string) {
-  let clean = content.replace(COMPLETION_MARKER, "").replace(EDIT_COMPLETION_MARKER, "").trim();
+  let clean = content
+    .replace(COMPLETION_MARKER, "")
+    .replace(EDIT_COMPLETION_MARKER, "")
+    .replace(/===SUMMARY_START===[\s\S]*?===SUMMARY_END===/g, "")
+    .trim();
 
   // Strip any AI preamble text before the first heading
   const firstHeadingIdx = clean.indexOf("\n# ");

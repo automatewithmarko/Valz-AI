@@ -25,6 +25,8 @@ import type { Message } from "@/lib/types";
 
 const COMPLETION_MARKER = "===BRAND_DNA_COMPLETE===";
 const EDIT_COMPLETION_MARKER = "===BRAND_DNA_EDIT_COMPLETE===";
+const SUMMARY_START_MARKER = "===SUMMARY_START===";
+const SUMMARY_END_MARKER = "===SUMMARY_END===";
 
 async function streamResponse(
   messages: { role: string; content: string }[],
@@ -106,15 +108,15 @@ function BrandMessage({
 
   if (!isUser && !message.content) return null;
 
-  // Detect Phase 4 blueprint messages (Steps 8+)
+  // Detect blueprint messages
+  const isBlueprintMessage = !isUser && message.content.includes("# YOUR ALIGNED INCOME BLUEPRINT");
   const hasCompletionMarker =
     message.content.includes(COMPLETION_MARKER) ||
     message.content.includes(EDIT_COMPLETION_MARKER);
-  const isPhase4 = !isUser && /## Step (8|9|1[0-5]):/.test(message.content);
-  const isBlueprintComplete = isPhase4 && (hasCompletionMarker || isComplete);
-  const isBlueprintStreaming = isPhase4 && !isBlueprintComplete;
+  const isBlueprintComplete = isBlueprintMessage && (hasCompletionMarker || isComplete);
+  const isBlueprintStreaming = isBlueprintMessage && !isBlueprintComplete;
 
-  // Phase 4 is being generated — show a loading card
+  // Blueprint is being generated — show a loading card
   if (isBlueprintStreaming) {
     return (
       <motion.div
@@ -131,7 +133,7 @@ function BrandMessage({
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
               <div className="flex items-center gap-3">
                 <Loader2 className="h-5 w-5 animate-spin text-white/70" />
-                <p className="text-sm font-medium">Mapping out your content and monetisation strategy...</p>
+                <p className="text-sm font-medium">Building your Aligned Income Blueprint...</p>
               </div>
             </div>
           </div>
@@ -140,8 +142,19 @@ function BrandMessage({
     );
   }
 
-  // Blueprint is complete — show success card with download button and Back Pocket AI CTA
+  // Blueprint is complete — show success card with summary, download button and Back Pocket AI CTA
   if (isBlueprintComplete) {
+    // Extract the personalized summary from markers
+    const sourceContent = blueprintContent || message.content;
+    const summaryStartIdx = sourceContent.indexOf(SUMMARY_START_MARKER);
+    const summaryEndIdx = sourceContent.indexOf(SUMMARY_END_MARKER);
+    const extractedSummary =
+      summaryStartIdx !== -1 && summaryEndIdx !== -1
+        ? sourceContent
+            .substring(summaryStartIdx + SUMMARY_START_MARKER.length, summaryEndIdx)
+            .trim()
+        : null;
+
     return (
       <motion.div
         initial={{ opacity: 0, y: 10 }}
@@ -156,9 +169,17 @@ function BrandMessage({
           <div className="min-w-0 flex-1">
             <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
               <p className="text-sm font-semibold">Your Aligned Income Blueprint is complete!</p>
-              <p className="mt-1.5 text-sm text-white/80">
-                I&apos;ve built your completely personalised blueprint to create income online in total alignment with how you best operate, harnessing what you&apos;re already naturally good at and your unique life experiences. This is all ready for you to follow the blueprint and start making an incredible income in the most aligned way.
-              </p>
+              {extractedSummary ? (
+                <div className="mt-2 text-sm text-white/90 prose prose-sm prose-invert max-w-none prose-p:leading-relaxed prose-p:text-white/90 prose-strong:text-white">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {extractedSummary}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <p className="mt-1.5 text-sm text-white/80">
+                  I&apos;ve built your completely personalised blueprint to create income online in total alignment with how you best operate, harnessing what you&apos;re already naturally good at and your unique life experiences. This is all ready for you to follow the blueprint and start making an incredible income in the most aligned way.
+                </p>
+              )}
               <motion.button
                 initial={{ opacity: 0, y: 5 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -210,6 +231,7 @@ function BrandMessage({
   const displayContent = message.content
     .replace(COMPLETION_MARKER, "")
     .replace(EDIT_COMPLETION_MARKER, "")
+    .replace(/===SUMMARY_START===[\s\S]*?===SUMMARY_END===/g, "")
     .trim();
 
   return (
@@ -803,31 +825,23 @@ function BrandBuildingContent() {
     scrollToBottomIfNeeded();
   }, [messages.length, lastMessageContent, scrollToBottomIfNeeded]);
 
-  // Detect build-mode completion marker + combine all blueprint phases + save to DB
+  // Detect build-mode completion marker + save to DB
   useEffect(() => {
     if (isEditMode || isComplete || !brandDnaId || !userId) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
     if (lastAssistant?.content.includes(COMPLETION_MARKER)) {
       setIsComplete(true);
 
-      // Combine all assistant messages that contain blueprint step headings
-      const blueprintMessages = messages.filter(
-        (m) => m.role === "assistant" && /## Step \d+:/.test(m.content)
-      );
-      const combinedContent = "# YOUR ALIGNED INCOME BLUEPRINT\n\n" +
-        blueprintMessages
-          .map((m) => m.content.replace(COMPLETION_MARKER, "").trim())
-          .join("\n\n");
-
-      setFullBlueprintContent(combinedContent);
+      const blueprintContent = lastAssistant.content;
+      setFullBlueprintContent(blueprintContent);
       try {
-        localStorage.setItem("brandDNAContent", combinedContent);
+        localStorage.setItem("brandDNAContent", blueprintContent);
       } catch {
         // localStorage may be unavailable
       }
       updateBrandDNA(supabase, brandDnaId, {
         status: "active",
-        blueprint_content: combinedContent,
+        blueprint_content: blueprintContent,
         brand_name: authUser?.name || "",
       }).then(() => refreshUser()).catch((err) => console.error("Failed to save brand DNA:", err));
     }
@@ -952,9 +966,9 @@ function BrandBuildingContent() {
         );
         accumulated = initialContent;
 
-        // Auto-continue only if Phase 4 (Steps 8+) was started but not completed
-        const isPhase4Response = /## Step (8|9|1[0-5]):/.test(accumulated);
-        if (isPhase4Response && !accumulated.includes(COMPLETION_MARKER)) {
+        // Auto-continue if blueprint was started but not completed (truncated output)
+        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+        if (isBlueprintResponse && !accumulated.includes(COMPLETION_MARKER)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [
               ...apiMessages,
@@ -1088,9 +1102,9 @@ function BrandBuildingContent() {
         );
         accumulated = initialContent;
 
-        // Auto-continue only if Phase 4 (Steps 8+) was started but not completed (truncated output)
-        const isPhase4Response = /## Step (8|9|1[0-5]):/.test(accumulated);
-        if (isPhase4Response && !accumulated.includes(completionMarker)) {
+        // Auto-continue if blueprint was started but not completed (truncated output)
+        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+        if (isBlueprintResponse && !accumulated.includes(completionMarker)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [
               ...apiMessages,
