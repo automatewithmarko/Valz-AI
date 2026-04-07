@@ -23,6 +23,7 @@ export default function ValzacchiAI() {
     selectChat,
     deleteChat,
     sendMessage,
+    startWithOpening,
     regenerateLastResponse,
     updateBrandDNADocument,
     setBrandDNAComplete,
@@ -256,6 +257,7 @@ export default function ValzacchiAI() {
           isGenerating={isGenerating}
           onSend={sendMessage}
           onRegenerate={regenerateLastResponse}
+          onStartWithOpening={startWithOpening}
         />
       </div>
     </div>

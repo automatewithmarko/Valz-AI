@@ -480,7 +480,7 @@ function ProfileModal({
               }}
               className="mt-3 w-full rounded-lg bg-[#06264e] py-2.5 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90"
             >
-              Explore Back Pocket AI
+              Unlock Back Pocket AI
             </button>
           )}
         </div>
@@ -1433,7 +1433,7 @@ function BrandBuildingContent() {
                 <button onClick={() => setShowPricing(false)} className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:text-foreground">
                   <X className="h-4 w-4" />
                 </button>
-                <h2 className="mb-2 text-lg font-bold text-foreground">Explore Back Pocket AI</h2>
+                <h2 className="mb-2 text-lg font-bold text-foreground">Unlock Back Pocket AI</h2>
                 <p className="mb-4 text-sm text-muted-foreground">Choose a Consulting AI plan to unlock your marketing assistant.</p>
                 <button
                   onClick={() => {
@@ -1571,7 +1571,7 @@ function BrandBuildingContent() {
               <button onClick={() => setShowPricing(false)} className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:text-foreground">
                 <X className="h-4 w-4" />
               </button>
-              <h2 className="mb-2 text-lg font-bold text-foreground">Explore Back Pocket AI</h2>
+              <h2 className="mb-2 text-lg font-bold text-foreground">Unlock Back Pocket AI</h2>
               <p className="mb-4 text-sm text-muted-foreground">Choose a Consulting AI plan to unlock your marketing assistant.</p>
               <button
                 onClick={() => {

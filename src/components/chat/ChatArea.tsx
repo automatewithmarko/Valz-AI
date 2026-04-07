@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { Chat } from "@/lib/types";
 import { ChatMessage } from "./ChatMessage";
 import { ChatWelcome } from "./ChatWelcome";
+import type { ConversationStarter } from "./ChatWelcome";
 import { ChatInput } from "./ChatInput";
 import { ScrollToBottom } from "./ScrollToBottom";
 import { useScrollAnchor } from "@/hooks/useScrollAnchor";
@@ -14,12 +15,12 @@ interface ChatAreaProps {
   isGenerating: boolean;
   onSend: (message: string) => void;
   onRegenerate: () => void;
+  onStartWithOpening: (openingMessage: string, chatTitle: string) => void;
 }
 
-export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaProps) {
+export function ChatArea({ chat, isGenerating, onSend, onRegenerate, onStartWithOpening }: ChatAreaProps) {
   const { scrollRef, bottomRef, showScrollButton, scrollToBottom, scrollToBottomIfNeeded } =
     useScrollAnchor();
-  const [suggestionText, setSuggestionText] = useState("");
 
   const hasMessages = chat && chat.messages.length > 0;
 
@@ -29,18 +30,16 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaP
     scrollToBottomIfNeeded();
   }, [chat?.messages.length, lastMessageContent, scrollToBottomIfNeeded]);
 
-  const handleSuggestionClick = useCallback((text: string) => {
-    setSuggestionText(text);
-    // Small delay so the input can pick it up and then clear
-    setTimeout(() => {
-      setSuggestionText("");
-    }, 100);
-  }, []);
+  const handleStarterClick = useCallback(
+    (starter: ConversationStarter) => {
+      onStartWithOpening(starter.openingMessage, starter.title);
+    },
+    [onStartWithOpening]
+  );
 
   const handleSend = useCallback(
     (text: string) => {
       onSend(text);
-      setSuggestionText("");
       setTimeout(() => scrollToBottom(), 100);
     },
     [onSend, scrollToBottom]
@@ -72,7 +71,7 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaP
                 <div ref={bottomRef} className="h-1" />
               </motion.div>
             ) : (
-              <ChatWelcome key="welcome" onSuggestionClick={handleSuggestionClick} />
+              <ChatWelcome key="welcome" onStarterClick={handleStarterClick} />
             )}
           </AnimatePresence>
         </div>
@@ -86,7 +85,6 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaP
       <ChatInput
         onSend={handleSend}
         isGenerating={isGenerating}
-        initialValue={suggestionText || undefined}
       />
       </div>
     </div>

@@ -288,14 +288,17 @@ export async function createDemoSubscription(
 
   const { data, error } = await supabase
     .from("subscriptions")
-    .insert({
-      user_id: userId,
-      plan_id: planId,
-      status: "active",
-      current_period_start: now.toISOString(),
-      current_period_end: periodEnd.toISOString(),
-      cancel_at_period_end: false,
-    })
+    .upsert(
+      {
+        user_id: userId,
+        plan_id: planId,
+        status: "active",
+        current_period_start: now.toISOString(),
+        current_period_end: periodEnd.toISOString(),
+        cancel_at_period_end: false,
+      },
+      { onConflict: "user_id" }
+    )
     .select("*, plans(*)")
     .single();
   if (error) throw error;

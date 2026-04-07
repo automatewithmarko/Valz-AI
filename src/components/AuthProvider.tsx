@@ -44,13 +44,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const buildUser = useCallback(
     async (sbUser: SupabaseUser): Promise<User> => {
       try {
+        // Wrap each query with a 6-second timeout so a single slow query
+        // can't hang the entire app load
+        const withTimeout = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+          Promise.race([
+            promise,
+            new Promise<T>((resolve) => setTimeout(() => resolve(fallback), 6000)),
+          ]);
+
         const [profile, credits, brandDna, subscription, brandDnaPurchase] = await Promise.all([
-          getProfile(supabase, sbUser.id),
-          getCredits(supabase, sbUser.id).catch(() => null),
-          getPrimaryBrandDNA(supabase, sbUser.id).catch(() => null),
-          getSubscription(supabase, sbUser.id).catch(() => null),
-          getBrandDNAPurchase(supabase, sbUser.id).catch(() => null),
+          withTimeout(getProfile(supabase, sbUser.id), null),
+          withTimeout(getCredits(supabase, sbUser.id).catch(() => null), null),
+          withTimeout(getPrimaryBrandDNA(supabase, sbUser.id).catch(() => null), null),
+          withTimeout(getSubscription(supabase, sbUser.id).catch(() => null), null),
+          withTimeout(getBrandDNAPurchase(supabase, sbUser.id).catch(() => null), null),
         ]);
+
+        // If profile query timed out, fall through to the fallback
+        if (!profile) throw new Error("Profile query timed out");
 
         const brandDNA: BrandDNA = brandDna
           ? {
@@ -137,20 +148,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize auth state
   useEffect(() => {
-    const initAuth = async () => {
-      const {
-        data: { session: initialSession },
-      } = await supabase.auth.getSession();
+    let didFinish = false;
 
-      setSession(initialSession);
-      setSupabaseUser(initialSession?.user ?? null);
-
-      if (initialSession?.user) {
-        const appUser = await buildUser(initialSession.user);
-        setUser(appUser);
+    // Safety net: if auth init takes more than 8 seconds, stop loading
+    // so the user isn't stuck on a blank screen forever
+    const safetyTimeout = setTimeout(() => {
+      if (!didFinish) {
+        console.warn("Auth init timed out — forcing load complete");
+        setLoading(false);
       }
+    }, 8000);
 
-      setLoading(false);
+    const initAuth = async () => {
+      try {
+        const {
+          data: { session: initialSession },
+        } = await supabase.auth.getSession();
+
+        setSession(initialSession);
+        setSupabaseUser(initialSession?.user ?? null);
+
+        if (initialSession?.user) {
+          const appUser = await buildUser(initialSession.user);
+          setUser(appUser);
+        }
+      } catch (err) {
+        console.error("Auth init failed:", err);
+      } finally {
+        didFinish = true;
+        clearTimeout(safetyTimeout);
+        setLoading(false);
+      }
     };
 
     initAuth();
@@ -162,14 +190,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSupabaseUser(newSession?.user ?? null);
 
       if (newSession?.user) {
-        const appUser = await buildUser(newSession.user);
-        setUser(appUser);
+        try {
+          const appUser = await buildUser(newSession.user);
+          setUser(appUser);
+        } catch (err) {
+          console.error("Failed to build user on auth change:", err);
+        }
       } else {
         setUser(null);
       }
     });
 
     return () => {
+      clearTimeout(safetyTimeout);
       subscription.unsubscribe();
     };
   }, [supabase, buildUser]);

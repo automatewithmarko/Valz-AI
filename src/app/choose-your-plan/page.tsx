@@ -10,10 +10,22 @@ import { getPlans, createDemoSubscription } from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
 import type { Plan } from "@/lib/types";
 
-const planMeta: Record<string, { cta: string; highlighted: boolean }> = {
-  starter: { cta: "Get Started", highlighted: false },
-  growth: { cta: "Upgrade to Growth", highlighted: true },
-  pro: { cta: "Go Pro", highlighted: false },
+const planMeta: Record<string, { cta: string; highlighted: boolean; description: string }> = {
+  starter: {
+    cta: "Get Back Pocket",
+    highlighted: false,
+    description: "Your entry point into having real strategy support whenever you need it.",
+  },
+  growth: {
+    cta: "Get In Hand",
+    highlighted: true,
+    description: "For when you're ready to go deeper and need support that keeps up with you.",
+  },
+  pro: {
+    cta: "Get On Speed Dial",
+    highlighted: false,
+    description: "For the person who wants it all, fast, and without limits.",
+  },
 };
 
 export default function ChooseYourPlanPage() {
@@ -77,7 +89,10 @@ export default function ChooseYourPlanPage() {
     }
   };
 
-  const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
+  const formatPrice = (cents: number) => {
+    const dollars = cents / 100;
+    return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+  };
 
   if (authLoading || loadingPlans || !session) {
     return (
@@ -100,7 +115,7 @@ export default function ChooseYourPlanPage() {
       </div>
 
       {/* Headline */}
-      <h1 className="mb-2 text-2xl font-bold text-foreground">Choose your plan</h1>
+      <h1 className="mb-2 text-2xl font-bold text-foreground">Unlock Back Pocket AI</h1>
       <p className="mb-8 text-sm text-muted-foreground">
         Select the plan that best fits your brand needs.
       </p>
@@ -115,7 +130,7 @@ export default function ChooseYourPlanPage() {
       {/* Pricing cards */}
       <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
         {plans.map((plan) => {
-          const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false };
+          const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false, description: "" };
           const features = (plan.features as string[]) ?? [];
           const isSelecting = selectingPlanId === plan.id;
 
@@ -134,6 +149,9 @@ export default function ChooseYourPlanPage() {
                 </span>
               )}
               <h3 className="text-sm font-semibold text-foreground">{plan.display_name}</h3>
+              {meta.description && (
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{meta.description}</p>
+              )}
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-foreground">{formatPrice(plan.price_cents)}</span>
                 <span className="text-sm text-muted-foreground">/month</span>

@@ -395,6 +395,63 @@ export function useChat() {
     [activeChatId, isGenerating, chats, user, supabase, refreshUser]
   );
 
+  // Start a new chat with a predefined assistant opening message (no API call)
+  const startWithOpening = useCallback(
+    async (openingMessage: string, chatTitle: string) => {
+      if (!user) return;
+
+      try {
+        const newDbChat = await dbCreateChat(supabase, user.id, chatTitle);
+        const chatId = newDbChat.id;
+
+        const assistantMsg: Message = {
+          id: `msg-${Date.now()}-opener`,
+          role: "assistant",
+          content: openingMessage,
+          timestamp: new Date(),
+        };
+
+        const newChat: Chat = {
+          id: chatId,
+          title: chatTitle,
+          messages: [assistantMsg],
+          createdAt: new Date(newDbChat.created_at),
+          updatedAt: new Date(newDbChat.updated_at),
+        };
+
+        setChats((prev) => [newChat, ...prev]);
+        setActiveChatId(chatId);
+
+        // Save opening message to DB
+        try {
+          const savedMsg = await insertChatMessage(supabase, {
+            chat_id: chatId,
+            user_id: user.id,
+            role: "assistant",
+            content: openingMessage,
+          });
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantMsg.id ? { ...m, id: savedMsg.id } : m
+                    ),
+                  }
+                : c
+            )
+          );
+        } catch (err) {
+          console.error("Failed to save opening message:", err);
+        }
+      } catch (err) {
+        console.error("Failed to create chat with opening:", err);
+      }
+    },
+    [user, supabase]
+  );
+
   const regenerateLastResponse = useCallback(async () => {
     if (!activeChat || isGenerating || !user) return;
     const messages = activeChat.messages;
@@ -568,6 +625,7 @@ export function useChat() {
     selectChat,
     deleteChat,
     sendMessage,
+    startWithOpening,
     regenerateLastResponse,
     updateBrandDNADocument,
     setBrandDNAComplete,

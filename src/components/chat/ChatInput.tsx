@@ -8,10 +8,9 @@ import { useAutoResize } from "@/hooks/useAutoResize";
 interface ChatInputProps {
   onSend: (message: string) => void;
   isGenerating: boolean;
-  initialValue?: string;
 }
 
-export function ChatInput({ onSend, isGenerating, initialValue }: ChatInputProps) {
+export function ChatInput({ onSend, isGenerating }: ChatInputProps) {
   const [value, setValue] = useState("");
   const { ref, resize } = useAutoResize(200);
   const canSend = value.trim().length > 0 && !isGenerating;
@@ -19,14 +18,6 @@ export function ChatInput({ onSend, isGenerating, initialValue }: ChatInputProps
 
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-
-  // Sync initialValue from suggestion clicks
-  useEffect(() => {
-    if (initialValue) {
-      setValue(initialValue);
-      inputRef.current?.focus();
-    }
-  }, [initialValue, inputRef]);
 
   // Auto-focus on mount
   useEffect(() => {
