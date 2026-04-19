@@ -257,7 +257,6 @@ export default function ValzacchiAI() {
           isGenerating={isGenerating}
           onSend={sendMessage}
           onRegenerate={regenerateLastResponse}
-          onStartWithOpening={startWithOpening}
         />
       </div>
     </div>

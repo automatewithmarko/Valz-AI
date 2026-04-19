@@ -15,10 +15,10 @@ interface ChatAreaProps {
   isGenerating: boolean;
   onSend: (message: string) => void;
   onRegenerate: () => void;
-  onStartWithOpening: (openingMessage: string, chatTitle: string) => void;
+  onStartWithOpening?: (openingMessage: string, chatTitle: string) => void;
 }
 
-export function ChatArea({ chat, isGenerating, onSend, onRegenerate, onStartWithOpening }: ChatAreaProps) {
+export function ChatArea({ chat, isGenerating, onSend, onRegenerate }: ChatAreaProps) {
   const { scrollRef, bottomRef, showScrollButton, scrollToBottom, scrollToBottomIfNeeded } =
     useScrollAnchor();
 
@@ -32,9 +32,12 @@ export function ChatArea({ chat, isGenerating, onSend, onRegenerate, onStartWith
 
   const handleStarterClick = useCallback(
     (starter: ConversationStarter) => {
-      onStartWithOpening(starter.openingMessage, starter.title);
+      // Send the starter as a user message so the AI responds with
+      // Brand DNA context instead of showing a pre-typed message.
+      onSend(starter.userPrompt);
+      setTimeout(() => scrollToBottom(), 100);
     },
-    [onStartWithOpening]
+    [onSend, scrollToBottom]
   );
 
   const handleSend = useCallback(

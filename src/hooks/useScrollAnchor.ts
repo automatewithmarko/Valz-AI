@@ -13,6 +13,9 @@ export function useScrollAnchor() {
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, []);
 
+  // Attach scroll listener. Re-run whenever the DOM updates so we pick
+  // up the element even if it mounts after the hook's first render
+  // (e.g. brand-building page shows a loading screen first).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -23,9 +26,12 @@ export function useScrollAnchor() {
       setShowScrollButton(distanceFromBottom > 100);
     };
 
+    // Check initial state in case we're already scrolled up
+    handleScroll();
+
     el.addEventListener("scroll", handleScroll, { passive: true });
     return () => el.removeEventListener("scroll", handleScroll);
-  }, []);
+  });
 
   // Auto-scroll when new content is added (only if already near bottom)
   const scrollToBottomIfNeeded = useCallback(() => {

@@ -4,7 +4,7 @@ import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Download, Eye, EyeOff, Home, Loader2, LogOut, Mic, MicOff, Save, User, X } from "lucide-react";
+import { Check, Copy, Download, Eye, EyeOff, Home, Loader2, LogOut, Mic, MicOff, Printer, Save, User, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
@@ -27,6 +27,18 @@ const COMPLETION_MARKER = "===BRAND_DNA_COMPLETE===";
 const EDIT_COMPLETION_MARKER = "===BRAND_DNA_EDIT_COMPLETE===";
 const SUMMARY_START_MARKER = "===SUMMARY_START===";
 const SUMMARY_END_MARKER = "===SUMMARY_END===";
+
+// Human Design calculation pipeline markers.
+// AI emits HD_CALCULATE with birth data → page runs calculator → page injects
+// HD_DISPLAY (rendered as a card) and HD_RESULT (sent back as the user's next
+// message so the AI can interpret it).
+const HD_CALCULATE_REGEX = /===HD_CALCULATE:\s*({[\s\S]*?})===/;
+const HD_DISPLAY_PREFIX = "===HD_DISPLAY===";
+const HD_RESULT_PREFIX = "===HD_RESULT===";
+
+function stripDashes(text: string): string {
+  return text.replaceAll("—", ", ").replaceAll("–", ", ");
+}
 
 async function streamResponse(
   messages: { role: string; content: string }[],
@@ -73,7 +85,7 @@ async function streamResponse(
           const delta = parsed.choices?.[0]?.delta?.content;
           if (delta) {
             fullContent += delta;
-            onChunk(fullContent);
+            onChunk(stripDashes(fullContent));
           }
         } catch {
           // skip malformed chunks
@@ -87,7 +99,7 @@ async function streamResponse(
     console.error("Stream interrupted:", err);
   }
 
-  return fullContent;
+  return stripDashes(fullContent);
 }
 
 // Custom message component for brand building
@@ -103,10 +115,83 @@ function BrandMessage({
   blueprintContent?: string | null;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [copied, setCopied] = useState(false);
   const router = useRouter();
   const isUser = message.role === "user";
 
+  const handleCopy = async (text: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   if (!isUser && !message.content) return null;
+
+  // Hide the HD_RESULT system-style user message — it's an automated handoff
+  // back to the AI, not something the human typed. The previous HD_DISPLAY
+  // card already shows the result.
+  if (isUser && message.content.startsWith(HD_RESULT_PREFIX)) return null;
+  // Hide the bare HD_CALCULATE marker if it ever shows up as an assistant
+  // message — the loading card and HD_DISPLAY card supersede it.
+  if (!isUser && HD_CALCULATE_REGEX.test(message.content) && message.content.replace(HD_CALCULATE_REGEX, "").trim() === "") {
+    return null;
+  }
+
+  // HD result display card
+  if (!isUser && message.content.startsWith(HD_DISPLAY_PREFIX)) {
+    let result: { name: string; type: string; strategy: string; authority: string; profile: string; definedCenters: string[]; approximateTime?: boolean } | null = null;
+    try {
+      result = JSON.parse(message.content.slice(HD_DISPLAY_PREFIX.length).trim());
+    } catch {
+      return null;
+    }
+    if (!result) return null;
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, ease: "easeOut" }}
+        className="group relative px-4 py-2"
+      >
+        <div className="flex max-w-full items-start gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+            <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-white/60">
+                Human Design Calculated
+              </p>
+              <p className="mt-1 text-base font-semibold">{result.name}</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                <div className="rounded-lg bg-white/10 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/60">Type</p>
+                  <p className="mt-0.5 font-medium">{result.type}</p>
+                </div>
+                <div className="rounded-lg bg-white/10 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/60">Authority</p>
+                  <p className="mt-0.5 font-medium">{result.authority}</p>
+                </div>
+                <div className="rounded-lg bg-white/10 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-white/60">Profile</p>
+                  <p className="mt-0.5 font-medium">{result.profile}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-white/70">
+                Strategy: <span className="text-white/90">{result.strategy}</span>
+              </p>
+              {result.approximateTime && (
+                <p className="mt-2 text-xs text-amber-200">
+                  Birth time was unknown, defaulted to 12:00. Type and Authority may be approximate.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    );
+  }
 
   // Detect blueprint messages
   const isBlueprintMessage = !isUser && message.content.includes("# YOUR ALIGNED INCOME BLUEPRINT");
@@ -231,8 +316,11 @@ function BrandMessage({
   const displayContent = message.content
     .replace(COMPLETION_MARKER, "")
     .replace(EDIT_COMPLETION_MARKER, "")
+    .replace(HD_CALCULATE_REGEX, "")
     .replace(/===SUMMARY_START===[\s\S]*?===SUMMARY_END===/g, "")
     .trim();
+
+  if (!isUser && !displayContent) return null;
 
   return (
     <motion.div
@@ -257,6 +345,19 @@ function BrandMessage({
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {displayContent}
               </ReactMarkdown>
+            </div>
+            <div className="mt-1.5 flex items-center gap-0.5">
+              <button
+                onClick={() => handleCopy(displayContent)}
+                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-[#f2dacb]/50 hover:text-foreground"
+                aria-label="Copy message"
+              >
+                {copied ? (
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -730,6 +831,7 @@ function BrandBuildingContent() {
   const [showProfile, setShowProfile] = useState(false);
   const [brandDnaId, setBrandDnaId] = useState<string | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
+  const [hdCalculating, setHdCalculating] = useState(false);
   const router = useRouter();
   const abortRef = useRef<AbortController | null>(null);
   const { scrollRef, bottomRef, showScrollButton, scrollToBottom, scrollToBottomIfNeeded } =
@@ -824,6 +926,182 @@ function BrandBuildingContent() {
   useEffect(() => {
     scrollToBottomIfNeeded();
   }, [messages.length, lastMessageContent, scrollToBottomIfNeeded]);
+
+  // ── Human Design calculation handler ───────────────────────────────
+  // When the AI emits ===HD_CALCULATE: {...}===, run the calculator client-
+  // side, save a HD_DISPLAY card to the conversation, then auto-send a
+  // HD_RESULT user message so the AI can deliver the interpretation.
+  const hdProcessedMsgIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (isEditMode || isGenerating || hdCalculating || !brandDnaId || !userId) return;
+    const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
+    if (!lastAssistant) return;
+    if (hdProcessedMsgIdRef.current === lastAssistant.id) return;
+    const match = lastAssistant.content.match(HD_CALCULATE_REGEX);
+    if (!match) return;
+
+    hdProcessedMsgIdRef.current = lastAssistant.id;
+
+    let payload: { name: string; birthDate: string; birthTime: string; birthPlace: string; timezone: string } | null = null;
+    try {
+      payload = JSON.parse(match[1]);
+    } catch (err) {
+      console.error("Failed to parse HD_CALCULATE payload:", err);
+      return;
+    }
+    if (!payload) return;
+
+    // Safety net: validate all required fields are present before running
+    // the calculator. If the AI emitted HD_CALCULATE with missing data
+    // despite prompt instructions, ask the user to confirm.
+    const missing: string[] = [];
+    if (!payload.name?.trim()) missing.push("full name");
+    if (!payload.birthDate?.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(payload.birthDate)) missing.push("date of birth");
+    if (!payload.birthPlace?.trim()) missing.push("city and country of birth");
+    if (!payload.timezone?.trim()) missing.push("birth location (so I can resolve the timezone)");
+    if (missing.length > 0) {
+      console.warn("HD_CALCULATE emitted with missing fields:", missing);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `msg-${Date.now()}-hd-incomplete`,
+          role: "assistant",
+          content: `It looks like I'm missing some of your birth details. Could you confirm your ${missing.join(", ")}?`,
+          timestamp: new Date(),
+        },
+      ]);
+      return;
+    }
+
+    setHdCalculating(true);
+
+    (async () => {
+      try {
+        const { calculateHumanDesign } = await import("@/lib/human-design/calculator");
+        const result = await calculateHumanDesign(payload);
+
+        // Persist & display a card with the HD result.
+        const displayPayload = {
+          name: result.name,
+          type: result.type,
+          strategy: result.strategy,
+          authority: result.authority,
+          profile: result.profile,
+          definedCenters: result.definedCenters,
+          approximateTime: result.approximateTime,
+        };
+        const displayContent = `${HD_DISPLAY_PREFIX}\n${JSON.stringify(displayPayload)}`;
+
+        let displayId = `msg-${Date.now()}-hd-display`;
+        try {
+          const saved = await insertBrandDNAChatMessage(supabase, {
+            brand_dna_id: brandDnaId,
+            user_id: userId,
+            role: "assistant",
+            content: displayContent,
+          });
+          displayId = saved.id;
+        } catch (err) {
+          console.error("Failed to save HD_DISPLAY message:", err);
+        }
+        setMessages((prev) => [
+          ...prev,
+          { id: displayId, role: "assistant", content: displayContent, timestamp: new Date() },
+        ]);
+
+        // Send the HD result back to the AI as the next user-role message
+        // so it can deliver the Jenna Zoe interpretation and continue.
+        const resultPayload = {
+          type: result.type,
+          strategy: result.strategy,
+          authority: result.authority,
+          profile: result.profile,
+          definedCenters: result.definedCenters,
+          undefinedCenters: result.undefinedCenters,
+          personalitySun: result.personalitySun,
+          designSun: result.designSun,
+          approximateTime: result.approximateTime,
+        };
+        const resultContent = `${HD_RESULT_PREFIX}\n${JSON.stringify(resultPayload)}`;
+
+        let resultId = `msg-${Date.now()}-hd-result`;
+        try {
+          const saved = await insertBrandDNAChatMessage(supabase, {
+            brand_dna_id: brandDnaId,
+            user_id: userId,
+            role: "user",
+            content: resultContent,
+          });
+          resultId = saved.id;
+        } catch (err) {
+          console.error("Failed to save HD_RESULT message:", err);
+        }
+        const resultMessage: Message = {
+          id: resultId,
+          role: "user",
+          content: resultContent,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, resultMessage]);
+
+        // Auto-stream the AI's interpretation response.
+        const apiMessages = [...messages, {
+          id: displayId, role: "assistant", content: displayContent, timestamp: new Date()
+        }, resultMessage].map((m) => ({ role: m.role, content: m.content }));
+
+        const aiMsgId = `msg-${Date.now()}-hd-ai`;
+        setMessages((prev) => [
+          ...prev,
+          { id: aiMsgId, role: "assistant", content: "", timestamp: new Date() },
+        ]);
+        setIsGenerating(true);
+
+        const abort = new AbortController();
+        abortRef.current = abort;
+        try {
+          const finalContent = await streamResponse(
+            apiMessages,
+            (text) => {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === aiMsgId ? { ...m, content: text } : m))
+              );
+            },
+            abort.signal,
+          );
+          try {
+            const saved = await insertBrandDNAChatMessage(supabase, {
+              brand_dna_id: brandDnaId,
+              user_id: userId,
+              role: "assistant",
+              content: finalContent,
+            });
+            setMessages((prev) =>
+              prev.map((m) => (m.id === aiMsgId ? { ...m, id: saved.id, content: finalContent } : m))
+            );
+          } catch (err) {
+            console.error("Failed to save HD interpretation message:", err);
+          }
+        } finally {
+          abortRef.current = null;
+          setIsGenerating(false);
+        }
+      } catch (err) {
+        console.error("Human Design calculation failed:", err);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `msg-${Date.now()}-hd-error`,
+            role: "assistant",
+            content:
+              "I had trouble calculating your Human Design. Could you double-check your birth date, time, city and country and try again?",
+            timestamp: new Date(),
+          },
+        ]);
+      } finally {
+        setHdCalculating(false);
+      }
+    })();
+  }, [messages, isEditMode, isGenerating, hdCalculating, brandDnaId, userId, supabase]);
 
   // Detect build-mode completion marker + save to DB
   useEffect(() => {
@@ -1081,7 +1359,7 @@ function BrandBuildingContent() {
         : undefined;
 
       const completionMarker = isEditMode ? EDIT_COMPLETION_MARKER : COMPLETION_MARKER;
-      const MAX_CONTINUATIONS = 3;
+      const MAX_CONTINUATIONS = 5;
 
       try {
         const abort = new AbortController();
@@ -1453,9 +1731,9 @@ function BrandBuildingContent() {
   }
 
   return (
-    <div className="flex h-dvh flex-col bg-background">
+    <div className="relative flex h-dvh flex-col bg-background">
       {/* Top bar */}
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
+      <div data-print-hide className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <span className="text-sm font-medium text-foreground">
           {isEditMode ? "Edit Brand DNA" : "Brand Building Blueprint"}
         </span>
@@ -1476,6 +1754,32 @@ function BrandBuildingContent() {
             >
               <Home className="h-3.5 w-3.5" />
               Go to Back Pocket AI
+            </button>
+          )}
+          {hasMessages && (
+            <button
+              onClick={() => {
+                const el = scrollRef.current;
+                if (el) {
+                  el.style.overflow = "visible";
+                  el.style.height = "auto";
+                  el.style.flex = "none";
+                }
+                setTimeout(() => {
+                  window.print();
+                  setTimeout(() => {
+                    if (el) {
+                      el.style.overflow = "";
+                      el.style.height = "";
+                      el.style.flex = "";
+                    }
+                  }, 500);
+                }, 100);
+              }}
+              className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-[#f2dacb]/50 hover:text-foreground"
+            >
+              <Printer className="h-3.5 w-3.5" />
+              Print Chat
             </button>
           )}
           <button
@@ -1509,6 +1813,28 @@ function BrandBuildingContent() {
                   blueprintContent={fullBlueprintContent}
                 />
               ))}
+              {hdCalculating && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease: "easeOut" }}
+                  className="px-4 py-2"
+                >
+                  <div className="flex max-w-full items-start gap-3">
+                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+                      <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="rounded-2xl bg-[#06264e] px-5 py-4 text-white">
+                        <div className="flex items-center gap-3">
+                          <Loader2 className="h-5 w-5 animate-spin text-white/70" />
+                          <p className="text-sm font-medium">Calculating your Human Design...</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
               {isEditComplete && isEditMode && (
                 <motion.div
                   initial={{ opacity: 0, y: 10 }}
@@ -1538,7 +1864,7 @@ function BrandBuildingContent() {
 
       <ScrollToBottom show={showScrollButton} onClick={scrollToBottom} />
 
-      <div className="shrink-0">
+      <div data-print-hide className="shrink-0">
         <BrandInput
           onSend={sendMessage}
           isGenerating={isGenerating}

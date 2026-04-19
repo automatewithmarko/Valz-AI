@@ -14,6 +14,12 @@ import {
 } from "@/lib/supabase/db";
 import { generateChatTitle } from "@/lib/mock-responses";
 
+// Strip em dashes (—) and en dashes (–) from AI output at the code level.
+// The system prompt bans them, but LLMs still slip them through occasionally.
+function stripDashes(text: string): string {
+  return text.replaceAll("—", ", ").replaceAll("–", ", ");
+}
+
 async function streamResponse(
   messages: { role: string; content: string }[],
   onChunk: (text: string) => void,
@@ -57,7 +63,7 @@ async function streamResponse(
         const delta = parsed.choices?.[0]?.delta?.content;
         if (delta) {
           fullContent += delta;
-          onChunk(fullContent);
+          onChunk(stripDashes(fullContent));
         }
       } catch {
         // skip malformed chunks
@@ -65,7 +71,7 @@ async function streamResponse(
     }
   }
 
-  return fullContent;
+  return stripDashes(fullContent);
 }
 
 export function useChat() {
@@ -359,13 +365,9 @@ export function useChat() {
           console.error("Failed to save assistant message:", err);
         }
 
-        // Decrement credit via API
-        try {
-          await supabase.rpc("decrement_credit", { user_uuid: user.id });
-          refreshUser();
-        } catch (err) {
-          console.error("Failed to decrement credit:", err);
-        }
+        // Credits are deducted server-side in /api/chat based on actual
+        // characters streamed. Just refresh the UI to pick up the new balance.
+        refreshUser();
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
           setChats((prev) =>
@@ -569,13 +571,8 @@ export function useChat() {
         console.error("Failed to save regenerated message:", err);
       }
 
-      // Decrement credit
-      try {
-        await supabase.rpc("decrement_credit", { user_uuid: user.id });
-        refreshUser();
-      } catch (err) {
-        console.error("Failed to decrement credit:", err);
-      }
+      // Credits deducted server-side — refresh to show new balance
+      refreshUser();
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         setChats((prev) =>

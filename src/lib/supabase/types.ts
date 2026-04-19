@@ -472,6 +472,10 @@ export type Database = {
         Returns: number
       }
       decrement_credit: { Args: { user_uuid: string }; Returns: number }
+      deduct_credits: {
+        Args: { user_uuid: string; credit_amount: number }
+        Returns: number
+      }
     }
     Enums: {
       [_ in never]: never

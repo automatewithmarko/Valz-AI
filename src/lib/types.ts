@@ -22,6 +22,8 @@ export interface User {
   avatarUrl: string | null;
   credits: number;
   maxCredits: number;
+  /** Monthly credits granted by the user's current plan (null if no active plan) */
+  monthlyCredits: number | null;
   brandDNA: BrandDNA;
   hasActiveSubscription: boolean;
   planName: string | null;

@@ -130,6 +130,21 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
                 <span className="text-3xl font-bold text-foreground">{formatPrice(plan.price_cents)}</span>
                 <span className="text-sm text-muted-foreground">/month</span>
               </div>
+              {plan.monthly_credits != null && (
+                <div className="mt-3 rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] px-3 py-2">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-lg font-bold text-[#06264e] tabular-nums">
+                      {plan.monthly_credits.toLocaleString()}
+                    </span>
+                    <span className="text-[11px] font-medium uppercase tracking-wider text-[#06264e]/70">
+                      credits / mo
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    ~{(plan.monthly_credits * 1000).toLocaleString()} characters of AI chat
+                  </p>
+                </div>
+              )}
               <ul className="mt-4 flex-1 space-y-2">
                 {features.map((feature) => (
                   <li key={feature} className="flex items-start gap-2 text-xs text-foreground">

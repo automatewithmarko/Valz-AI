@@ -191,3 +191,83 @@
     opacity: 1;
   }
 }
+
+/* Thinking dots animation: "..." that fades in and out */
+.thinking-dots::after {
+  content: "";
+  animation: thinking-dots 1.4s infinite steps(4, end);
+}
+
+@keyframes thinking-dots {
+  0%   { content: ""; }
+  25%  { content: "."; }
+  50%  { content: ".."; }
+  75%  { content: "..."; }
+  100% { content: ""; }
+}
+
+/* ─── Print styles for Brand Building AI chat ─── */
+@media print {
+  /* Hide non-chat UI */
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide top bar, input area, scroll button, modals, overlays */
+  [data-print-hide],
+  [aria-label="Scroll to bottom"] {
+    display: none !important;
+  }
+
+  /* Make the scroll container fill the page and show all content */
+  .chat-scroll {
+    overflow: visible !important;
+    height: auto !important;
+    flex: none !important;
+  }
+
+  /* Remove fixed heights and flex constraints */
+  .h-dvh, [class*="h-dvh"] {
+    height: auto !important;
+    min-height: 0 !important;
+  }
+
+  /* Ensure message bubbles maintain their colours */
+  .bg-\[\#06264e\] {
+    background-color: #06264e !important;
+    color: white !important;
+  }
+
+  .bg-\[\#87a8d3\] {
+    background-color: #87a8d3 !important;
+    color: white !important;
+  }
+
+  /* Ensure images print */
+  img {
+    max-width: 100% !important;
+  }
+
+  /* Allow long messages to break across pages instead of
+     jumping to the next page and leaving a gap */
+  .group {
+    break-inside: auto;
+  }
+
+  /* Hide copy buttons in print */
+  [aria-label="Copy message"] {
+    display: none !important;
+  }
+
+  /* Ensure the page doesn't clip */
+  * {
+    overflow: visible !important;
+  }
+
+  /* Clean margins */
+  @page {
+    margin: 1cm;
+  }
+}

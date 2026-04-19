@@ -19,8 +19,26 @@ export function ChatMessage({ message, isLast, onRegenerate }: ChatMessageProps)
   const [hovered, setHovered] = useState(false);
   const isUser = message.role === "user";
 
-  // Hide empty assistant messages (streaming hasn't started yet)
-  if (!isUser && !message.content) return null;
+  // Show thinking indicator for empty assistant messages (waiting for stream)
+  if (!isUser && !message.content) {
+    return (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.2 }}
+        className="px-4 py-2"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full overflow-hidden">
+            <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
+          </div>
+          <span className="text-sm text-muted-foreground">
+            thinking<span className="thinking-dots" />
+          </span>
+        </div>
+      </motion.div>
+    );
+  }
 
   return (
     <motion.div

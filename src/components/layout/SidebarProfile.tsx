@@ -28,9 +28,10 @@ const plans = [
     price: "$15",
     period: "/month",
     description: "Perfect for getting started with brand insights",
+    monthlyCredits: 1500,
     features: [
-      "30 AI brand consultant conversations",
-      "Personalized, context-aware responses",
+      "1,500 AI credits per month (~1.5M characters)",
+      "Personalized, context-aware brand analysis",
       "1 Brand DNA profile",
       "Email support",
     ],
@@ -42,8 +43,9 @@ const plans = [
     price: "$25",
     period: "/month",
     description: "For brands ready to go deeper",
+    monthlyCredits: 2500,
     features: [
-      "100 AI brand consultant conversations",
+      "2,500 AI credits per month (~2.5M characters)",
       "Longer, more detailed responses",
       "Voice-to-text input for hands-free use",
       "3 Brand DNA profiles",
@@ -56,9 +58,10 @@ const plans = [
     name: "Pro",
     price: "$35",
     period: "/month",
-    description: "Unlimited access for serious brand builders",
+    description: "Built for serious brand builders",
+    monthlyCredits: 3500,
     features: [
-      "Unlimited AI brand consultant conversations",
+      "3,500 AI credits per month (~3.5M characters)",
       "Fastest response times",
       "Unlimited Brand DNA profiles",
       "Manage multiple brands in one account",
@@ -421,6 +424,19 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                     <span className="text-sm text-muted-foreground">{plan.period}</span>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{plan.description}</p>
+                  <div className="mt-3 rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] px-3 py-2">
+                    <div className="flex items-baseline gap-1.5">
+                      <span className="text-lg font-bold text-[#06264e] tabular-nums">
+                        {plan.monthlyCredits.toLocaleString()}
+                      </span>
+                      <span className="text-[11px] font-medium uppercase tracking-wider text-[#06264e]/70">
+                        credits / mo
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      ~{(plan.monthlyCredits * 1000).toLocaleString()} characters of AI chat
+                    </p>
+                  </div>
                   <ul className="mt-4 flex-1 space-y-2">
                     {plan.features.map((feature) => (
                       <li key={feature} className="flex items-start gap-2 text-xs text-foreground">

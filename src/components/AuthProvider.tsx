@@ -40,9 +40,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Build the app-level User object from DB data
+  // Build the app-level User object from DB data.
+  // `prevUser` is the previously-known state — if a DB query times out we
+  // preserve critical flags (hasSelectedProgram, hasActiveSubscription) from
+  // the previous build so transient slowness doesn't bounce users to
+  // /choose-program.
   const buildUser = useCallback(
-    async (sbUser: SupabaseUser): Promise<User> => {
+    async (sbUser: SupabaseUser, prevUser?: User | null): Promise<User> => {
       try {
         // Wrap each query with a 6-second timeout so a single slow query
         // can't hang the entire app load
@@ -86,47 +90,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const hasBrandDNA = !!brandDna;
         const hasBrandDNAPurchase = !!brandDnaPurchase;
 
+        // If the DB says the user has a program, use that. If the DB came
+        // back null (timeout), preserve the previous known-good value so a
+        // slow query doesn't bounce an active user to /choose-program.
+        const freshHasSelectedProgram = hasActiveSubscription || hasBrandDNA;
+        const hasSelectedProgram =
+          freshHasSelectedProgram || (prevUser?.hasSelectedProgram ?? false);
+
+        const monthlyCredits = subscription?.plans?.monthly_credits ?? null;
         return {
           id: profile.id,
           name: profile.full_name,
           email: profile.email,
           avatarUrl: profile.avatar_url,
           credits: credits?.balance ?? 0,
-          maxCredits: Math.max(credits?.lifetime_purchased ?? 0, credits?.balance ?? 0, 100),
+          // maxCredits drives the credit bar fill. Prefer the plan's monthly
+          // allocation so the bar represents "this month's usage"; fall back
+          // to lifetime purchased or current balance for users without a plan.
+          maxCredits:
+            monthlyCredits ??
+            Math.max(
+              credits?.lifetime_purchased ?? 0,
+              credits?.balance ?? 0,
+              100
+            ),
+          monthlyCredits,
           brandDNA,
-          hasActiveSubscription,
-          planName: subscription?.plans?.display_name ?? null,
-          hasSelectedProgram: hasActiveSubscription || hasBrandDNA,
-          hasBrandDNAPurchase,
+          hasActiveSubscription: hasActiveSubscription || (prevUser?.hasActiveSubscription ?? false),
+          planName: subscription?.plans?.display_name ?? prevUser?.planName ?? null,
+          hasSelectedProgram,
+          hasBrandDNAPurchase: hasBrandDNAPurchase || (prevUser?.hasBrandDNAPurchase ?? false),
         };
       } catch (err) {
         console.error("Error building user:", err);
-        // Fallback from auth metadata
+        // Fallback from auth metadata — but preserve critical flags from
+        // the previous user state so a timeout doesn't redirect users.
         return {
           id: sbUser.id,
           name:
+            prevUser?.name ||
             (sbUser.user_metadata?.full_name as string) ||
             sbUser.email?.split("@")[0] ||
             "User",
           email: sbUser.email || "",
-          avatarUrl: null,
-          credits: 0,
-          maxCredits: 100,
-          brandDNA: {
+          avatarUrl: prevUser?.avatarUrl ?? null,
+          credits: prevUser?.credits ?? 0,
+          maxCredits: prevUser?.maxCredits ?? 100,
+          monthlyCredits: prevUser?.monthlyCredits ?? null,
+          brandDNA: prevUser?.brandDNA ?? {
             configured: false,
             brandName: "",
             status: "not_configured",
             documents: [],
           },
-          hasActiveSubscription: false,
-          planName: null,
-          hasSelectedProgram: false,
-          hasBrandDNAPurchase: false,
+          hasActiveSubscription: prevUser?.hasActiveSubscription ?? false,
+          planName: prevUser?.planName ?? null,
+          hasSelectedProgram: prevUser?.hasSelectedProgram ?? false,
+          hasBrandDNAPurchase: prevUser?.hasBrandDNAPurchase ?? false,
         };
       }
     },
     [supabase]
   );
+
+  // Keep a ref to the latest user so buildUser can read it without being
+  // a dependency (avoids circular re-render loops).
+  const userRef = useRef<User | null>(null);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const refreshingRef = useRef(false);
 
@@ -138,7 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         data: { user: sbUser },
       } = await supabase.auth.getUser();
       if (sbUser) {
-        const appUser = await buildUser(sbUser);
+        const appUser = await buildUser(sbUser, userRef.current);
         setUser(appUser);
       }
     } finally {
@@ -191,7 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (newSession?.user) {
         try {
-          const appUser = await buildUser(newSession.user);
+          const appUser = await buildUser(newSession.user, userRef.current);
           setUser(appUser);
         } catch (err) {
           console.error("Failed to build user on auth change:", err);

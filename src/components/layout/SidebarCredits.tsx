@@ -8,7 +8,8 @@ interface SidebarCreditsProps {
 }
 
 export function SidebarCredits({ user }: SidebarCreditsProps) {
-  const percentage = (user.credits / user.maxCredits) * 100;
+  const denominator = user.maxCredits > 0 ? user.maxCredits : 1;
+  const percentage = Math.min(100, Math.max(0, (user.credits / denominator) * 100));
 
   return (
     <div className="mx-3 space-y-2 px-0.5">
@@ -18,10 +19,19 @@ export function SidebarCredits({ user }: SidebarCreditsProps) {
           Credits
         </span>
       </div>
-      <p className="text-2xl font-bold text-[#ad0201] tabular-nums">
-        {user.credits.toLocaleString()}
-      </p>
-      <p className="text-xs text-muted-foreground">credits remaining</p>
+      <div className="flex items-baseline gap-2">
+        <p className="text-2xl font-bold text-[#ad0201] tabular-nums">
+          {user.credits.toLocaleString()}
+        </p>
+        {user.monthlyCredits != null && (
+          <span className="text-xs text-muted-foreground tabular-nums">
+            / {user.monthlyCredits.toLocaleString()}
+          </span>
+        )}
+      </div>
+      {user.planName && (
+        <p className="text-xs text-muted-foreground">{user.planName} plan</p>
+      )}
       <div className="h-1.5 overflow-hidden rounded-full bg-gray-300">
         <div
           className="h-full rounded-full bg-[#ad0201] transition-all duration-500"
