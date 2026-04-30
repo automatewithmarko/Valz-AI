@@ -85,6 +85,7 @@ export async function POST(req: NextRequest) {
       },
     ],
     return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
+    allow_promotion_codes: true,
     metadata: {
       supabase_user_id: user.id,
       kind: "credit_topup",
