@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getPlans, createDemoSubscription } from "@/lib/supabase/db";
+import { getPlans } from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
 import type { Plan } from "@/lib/types";
 
@@ -30,7 +30,7 @@ const planMeta: Record<string, { cta: string; highlighted: boolean; description:
 
 export default function ChooseYourPlanPage() {
   const router = useRouter();
-  const { session, loading: authLoading, user, supabaseUser, refreshUser } = useAuth();
+  const { session, loading: authLoading, user, supabaseUser } = useAuth();
   const [supabase] = useState(() => createClient());
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
@@ -67,26 +67,11 @@ export default function ChooseYourPlanPage() {
     fetchPlans();
   }, [supabase]);
 
-  const handleSelectPlan = async (plan: Plan) => {
+  const handleSelectPlan = (plan: Plan) => {
     if (!supabaseUser || selectingPlanId) return;
-
     setSelectingPlanId(plan.id);
     setError(null);
-
-    try {
-      await createDemoSubscription(
-        supabase,
-        supabaseUser.id,
-        plan.id,
-        plan.monthly_credits
-      );
-      await refreshUser();
-      router.push("/valzacchi-ai");
-    } catch (err) {
-      console.error("Failed to activate plan:", err);
-      setError("Something went wrong. Please try again.");
-      setSelectingPlanId(null);
-    }
+    router.push(`/checkout/subscription?planId=${encodeURIComponent(plan.id)}`);
   };
 
   const formatPrice = (cents: number) => {

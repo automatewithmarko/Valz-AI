@@ -344,6 +344,7 @@ export type Database = {
           name: string
           price_cents: number
           stripe_price_id: string | null
+          stripe_product_id: string | null
         }
         Insert: {
           brand_dna_profile_limit?: number | null
@@ -357,6 +358,7 @@ export type Database = {
           name: string
           price_cents: number
           stripe_price_id?: string | null
+          stripe_product_id?: string | null
         }
         Update: {
           brand_dna_profile_limit?: number | null
@@ -370,6 +372,7 @@ export type Database = {
           name?: string
           price_cents?: number
           stripe_price_id?: string | null
+          stripe_product_id?: string | null
         }
         Relationships: []
       }
@@ -474,6 +477,43 @@ export type Database = {
       decrement_credit: { Args: { user_uuid: string }; Returns: number }
       deduct_credits: {
         Args: { user_uuid: string; credit_amount: number }
+        Returns: number
+      }
+      match_kb_chunks: {
+        Args: {
+          query_embedding: string
+          match_count?: number
+          similarity_threshold?: number
+          metadata_filter?: Json
+        }
+        Returns: {
+          id: string
+          section_path: string
+          heading: string
+          content: string
+          metadata: Json
+          similarity: number
+        }[]
+      }
+      stripe_set_customer_id: {
+        Args: { p_secret: string; p_user_id: string; p_stripe_customer_id: string }
+        Returns: undefined
+      }
+      stripe_apply_subscription: {
+        Args: {
+          p_secret: string
+          p_user_id: string
+          p_plan_id: string
+          p_stripe_subscription_id: string
+          p_status: string
+          p_current_period_start: string
+          p_current_period_end: string
+          p_cancel_at_period_end: boolean
+        }
+        Returns: undefined
+      }
+      stripe_grant_monthly_credits: {
+        Args: { p_secret: string; p_user_id: string; p_plan_id: string }
         Returns: number
       }
     }

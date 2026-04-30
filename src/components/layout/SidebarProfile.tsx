@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { ChevronDown, Settings, CreditCard, Sparkles, LogOut, Check, Minus, Plus, Camera, Loader2, Eye, EyeOff } from "lucide-react";
-import type { User } from "@/lib/types";
+import type { Plan, User } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/supabase/client";
+import { getPlans } from "@/lib/supabase/db";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,55 +24,14 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-const plans = [
-  {
-    name: "Starter",
-    price: "$15",
-    period: "/month",
-    description: "Perfect for getting started with brand insights",
-    monthlyCredits: 1500,
-    features: [
-      "1,500 AI credits per month (~1.5M characters)",
-      "Personalized, context-aware brand analysis",
-      "1 Brand DNA profile",
-      "Email support",
-    ],
-    cta: "Get Started",
-    highlighted: false,
-  },
-  {
-    name: "Growth",
-    price: "$25",
-    period: "/month",
-    description: "For brands ready to go deeper",
-    monthlyCredits: 2500,
-    features: [
-      "2,500 AI credits per month (~2.5M characters)",
-      "Longer, more detailed responses",
-      "Voice-to-text input for hands-free use",
-      "3 Brand DNA profiles",
-      "Priority support",
-    ],
-    cta: "Upgrade to Growth",
-    highlighted: true,
-  },
-  {
-    name: "Pro",
-    price: "$35",
-    period: "/month",
-    description: "Built for serious brand builders",
-    monthlyCredits: 3500,
-    features: [
-      "3,500 AI credits per month (~3.5M characters)",
-      "Fastest response times",
-      "Unlimited Brand DNA profiles",
-      "Manage multiple brands in one account",
-      "Dedicated priority support",
-    ],
-    cta: "Go Pro",
-    highlighted: false,
-  },
-];
+// CTA + highlight metadata mirrors the sign-up onboarding (PricingScreen.tsx)
+// so the in-app subscription modal stays in sync with what new users see.
+// Plan name/price/credits/features all come from the `plans` table.
+const planMeta: Record<string, { cta: string; highlighted: boolean }> = {
+  starter: { cta: "Get Started", highlighted: false },
+  growth: { cta: "Upgrade to Growth", highlighted: true },
+  pro: { cta: "Go Pro", highlighted: false },
+};
 
 const CREDIT_PRICE = 0.10;
 const CREDIT_STEP = 50;
@@ -82,11 +43,28 @@ interface SidebarProfileProps {
 }
 
 export function SidebarProfile({ user }: SidebarProfileProps) {
+  const router = useRouter();
   const { signOut, refreshUser } = useAuth();
   const [subscriptionOpen, setSubscriptionOpen] = useState(false);
   const [creditsOpen, setCreditsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [creditAmount, setCreditAmount] = useState(100);
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(false);
+
+  // Fetch plans the first time the subscription modal opens so the data
+  // matches what new users see on the sign-up onboarding screen.
+  useEffect(() => {
+    if (!subscriptionOpen || plans.length > 0 || loadingPlans) return;
+    const supabase = createClient();
+    setLoadingPlans(true);
+    getPlans(supabase)
+      .then((data) => setPlans(data ?? []))
+      .catch((err) => console.error("Failed to load plans:", err))
+      .finally(() => setLoadingPlans(false));
+  }, [subscriptionOpen, plans.length, loadingPlans]);
+
+  const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
 
   // Settings form state
   const [editName, setEditName] = useState(user.name);
@@ -105,6 +83,47 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
     .toUpperCase();
 
   const totalPrice = (creditAmount * CREDIT_PRICE).toFixed(2);
+  const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  // Subscribe (no current plan) → embedded checkout page in our theme.
+  // Manage existing subscription (upgrade/downgrade/cancel) → Stripe
+  // Customer Portal (still hosted by Stripe — that's the official surface
+  // for plan management and we don't reimplement it).
+  const handlePlanCta = useCallback(
+    async (planId: string, isCurrent: boolean, hasActivePlan: boolean) => {
+      if (isCurrent) return;
+      setCheckoutBusy(planId);
+      setCheckoutError(null);
+
+      if (!hasActivePlan) {
+        router.push(`/checkout/subscription?planId=${encodeURIComponent(planId)}`);
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/stripe/portal", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.url) throw new Error(data.error ?? "Portal failed");
+        window.location.href = data.url;
+      } catch (err) {
+        console.error("portal cta failed", err);
+        setCheckoutError("Couldn't open billing portal. Please try again.");
+        setCheckoutBusy(null);
+      }
+    },
+    [router]
+  );
+
+  const handlePurchaseCredits = useCallback(() => {
+    setCheckoutBusy("credits");
+    setCheckoutError(null);
+    router.push(`/checkout/credits?credits=${creditAmount}`);
+  }, [creditAmount, router]);
 
   const handleOpenSettings = useCallback(() => {
     setEditName(user.name);
@@ -381,86 +400,101 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
           <DialogHeader>
             <DialogTitle>Choose your plan</DialogTitle>
             <DialogDescription>
-              Select the plan that best fits your brand valuation needs.
+              Select the plan that best fits your brand needs.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {plans.map((plan, idx) => {
-              const currentPlanIdx = user.planName
-                ? plans.findIndex((p) => p.name.toLowerCase() === user.planName!.toLowerCase())
-                : -1;
-              const isCurrent = currentPlanIdx >= 0 && idx === currentPlanIdx;
-              const isUpgrade = currentPlanIdx >= 0 && idx > currentPlanIdx;
-              const isDowngrade = currentPlanIdx >= 0 && idx < currentPlanIdx;
+          {checkoutError && (
+            <p className="text-center text-xs text-red-500">{checkoutError}</p>
+          )}
+          {loadingPlans ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="h-6 w-6 animate-spin text-[#06264e]" />
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              {plans.map((plan, idx) => {
+                const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false };
+                const features = (plan.features as string[]) ?? [];
+                // user.planName stores the plan's display_name, so match on that.
+                const currentPlanIdx = user.planName
+                  ? plans.findIndex((p) => p.display_name === user.planName)
+                  : -1;
+                const isCurrent = currentPlanIdx >= 0 && idx === currentPlanIdx;
+                const isUpgrade = currentPlanIdx >= 0 && idx > currentPlanIdx;
+                const isDowngrade = currentPlanIdx >= 0 && idx < currentPlanIdx;
 
-              let ctaText = plan.cta;
-              if (isCurrent) ctaText = "Current Plan";
-              else if (isUpgrade) ctaText = "Upgrade";
-              else if (isDowngrade) ctaText = "Downgrade";
+                let ctaText = meta.cta;
+                if (isCurrent) ctaText = "Current Plan";
+                else if (isUpgrade) ctaText = "Upgrade";
+                else if (isDowngrade) ctaText = "Downgrade";
 
-              return (
-                <div
-                  key={plan.name}
-                  className={`relative flex flex-col rounded-xl border p-5 transition-all ${
-                    isCurrent
-                      ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10 ring-2 ring-[#06264e]/20"
-                      : plan.highlighted && !user.planName
-                        ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10"
-                        : "border-[#e0d6d0] bg-white/40"
-                  }`}
-                >
-                  {isCurrent ? (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
-                      Current Plan
-                    </span>
-                  ) : plan.highlighted && !user.planName ? (
-                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
-                      Most Popular
-                    </span>
-                  ) : null}
-                  <h3 className="text-sm font-semibold text-foreground">{plan.name}</h3>
-                  <div className="mt-2 flex items-baseline gap-1">
-                    <span className="text-3xl font-bold text-foreground">{plan.price}</span>
-                    <span className="text-sm text-muted-foreground">{plan.period}</span>
-                  </div>
-                  <p className="mt-1 text-xs text-muted-foreground">{plan.description}</p>
-                  <div className="mt-3 rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] px-3 py-2">
-                    <div className="flex items-baseline gap-1.5">
-                      <span className="text-lg font-bold text-[#06264e] tabular-nums">
-                        {plan.monthlyCredits.toLocaleString()}
-                      </span>
-                      <span className="text-[11px] font-medium uppercase tracking-wider text-[#06264e]/70">
-                        credits / mo
-                      </span>
-                    </div>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      ~{(plan.monthlyCredits * 1000).toLocaleString()} characters of AI chat
-                    </p>
-                  </div>
-                  <ul className="mt-4 flex-1 space-y-2">
-                    {plan.features.map((feature) => (
-                      <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
-                        <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
-                        {feature}
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    disabled={isCurrent}
-                    className={`mt-5 w-full rounded-lg py-2 text-sm font-medium transition-all ${
+                return (
+                  <div
+                    key={plan.id}
+                    className={`relative flex flex-col rounded-xl border p-5 transition-all ${
                       isCurrent
-                        ? "cursor-default border border-[#06264e]/30 bg-[#06264e]/5 text-[#06264e] opacity-80"
-                        : isUpgrade || (plan.highlighted && !user.planName)
-                          ? "bg-[#06264e] text-white hover:bg-[#06264e]/90"
-                          : "border border-[#e0d6d0] text-foreground hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+                        ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10 ring-2 ring-[#06264e]/20"
+                        : meta.highlighted && !user.planName
+                          ? "border-[#06264e] bg-[#06264e]/[0.03] shadow-lg shadow-[#06264e]/10"
+                          : "border-[#e0d6d0] bg-white/40"
                     }`}
                   >
-                    {ctaText}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                    {isCurrent ? (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                        Current Plan
+                      </span>
+                    ) : meta.highlighted && !user.planName ? (
+                      <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#06264e] px-3 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                        Most Popular
+                      </span>
+                    ) : null}
+                    <h3 className="text-sm font-semibold text-foreground">{plan.display_name}</h3>
+                    <div className="mt-2 flex items-baseline gap-1">
+                      <span className="text-3xl font-bold text-foreground">{formatPrice(plan.price_cents)}</span>
+                      <span className="text-sm text-muted-foreground">/month</span>
+                    </div>
+                    {plan.monthly_credits != null && (
+                      <div className="mt-3 rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] px-3 py-2">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-lg font-bold text-[#06264e] tabular-nums">
+                            {plan.monthly_credits.toLocaleString()}
+                          </span>
+                          <span className="text-[11px] font-medium uppercase tracking-wider text-[#06264e]/70">
+                            credits / mo
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          ~{(plan.monthly_credits * 1000).toLocaleString()} characters of AI chat
+                        </p>
+                      </div>
+                    )}
+                    <ul className="mt-4 flex-1 space-y-2">
+                      {features.map((feature) => (
+                        <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
+                          <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
+                          {feature}
+                        </li>
+                      ))}
+                    </ul>
+                    <button
+                      disabled={isCurrent || !!checkoutBusy}
+                      onClick={() => handlePlanCta(plan.id, isCurrent, !!user.planName)}
+                      className={`mt-5 flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-all disabled:opacity-70 ${
+                        isCurrent
+                          ? "cursor-default border border-[#06264e]/30 bg-[#06264e]/5 text-[#06264e] opacity-80"
+                          : isUpgrade || (meta.highlighted && !user.planName)
+                            ? "bg-[#06264e] text-white hover:bg-[#06264e]/90"
+                            : "border border-[#e0d6d0] text-foreground hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+                      }`}
+                    >
+                      {checkoutBusy === plan.id && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {ctaText}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -502,9 +536,17 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
               Total: <span className="font-semibold text-foreground">${totalPrice}</span>
             </p>
             {/* Purchase button */}
-            <button className="w-full rounded-lg bg-[#06264e] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90">
+            <button
+              onClick={handlePurchaseCredits}
+              disabled={!!checkoutBusy}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-70"
+            >
+              {checkoutBusy === "credits" && <Loader2 className="h-4 w-4 animate-spin" />}
               Purchase Credits
             </button>
+            {checkoutError && (
+              <p className="text-center text-xs text-red-500">{checkoutError}</p>
+            )}
           </div>
         </DialogContent>
       </Dialog>

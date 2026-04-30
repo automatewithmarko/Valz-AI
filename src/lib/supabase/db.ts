@@ -275,45 +275,6 @@ export async function updateChatMessage(
   if (error) throw error;
 }
 
-// ─── Demo Subscriptions ─────────────────────────────────────────
-export async function createDemoSubscription(
-  supabase: TypedClient,
-  userId: string,
-  planId: string,
-  monthlyCredits: number | null
-) {
-  const now = new Date();
-  const periodEnd = new Date(now);
-  periodEnd.setFullYear(periodEnd.getFullYear() + 1); // 1 year demo period
-
-  const { data, error } = await supabase
-    .from("subscriptions")
-    .upsert(
-      {
-        user_id: userId,
-        plan_id: planId,
-        status: "active",
-        current_period_start: now.toISOString(),
-        current_period_end: periodEnd.toISOString(),
-        cancel_at_period_end: false,
-      },
-      { onConflict: "user_id" }
-    )
-    .select("*, plans(*)")
-    .single();
-  if (error) throw error;
-
-  // Add monthly credits if the plan includes them
-  if (monthlyCredits) {
-    await supabase.rpc("add_credits", {
-      user_uuid: userId,
-      credit_amount: monthlyCredits,
-    });
-  }
-
-  return data;
-}
-
 // ─── Brand DNA Purchases ──────────────────────────────────────────
 export async function getBrandDNAPurchase(
   supabase: TypedClient,

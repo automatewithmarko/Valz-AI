@@ -5,7 +5,7 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { getPlans, createDemoSubscription } from "@/lib/supabase/db";
+import { getPlans } from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
 import type { Plan } from "@/lib/types";
 
@@ -20,8 +20,8 @@ interface PricingScreenProps {
   onComplete: () => void;
 }
 
-export function PricingScreen({ onComplete }: PricingScreenProps) {
-  const { supabaseUser, refreshUser } = useAuth();
+export function PricingScreen({ onComplete: _onComplete }: PricingScreenProps) {
+  const { supabaseUser } = useAuth();
   const [supabase] = useState(() => createClient());
   const [plans, setPlans] = useState<Plan[]>([]);
   const [loadingPlans, setLoadingPlans] = useState(true);
@@ -51,18 +51,19 @@ export function PricingScreen({ onComplete }: PricingScreenProps) {
     setError(null);
 
     try {
-      await createDemoSubscription(
-        supabase,
-        supabaseUser.id,
-        plan.id,
-        plan.monthly_credits
-      );
-      // Refresh user context so it picks up the new subscription + credits
-      await refreshUser();
-      onComplete();
+      const res = await fetch("/api/stripe/checkout/subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planId: plan.id }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.url) throw new Error(data.error ?? "Checkout failed");
+      // Redirect into Stripe Checkout. Stripe will redirect back to
+      // success_url on completion; the webhook activates the subscription.
+      window.location.href = data.url;
     } catch (err) {
-      console.error("Failed to activate plan:", err);
-      setError("Something went wrong. Please try again.");
+      console.error("Failed to start checkout:", err);
+      setError("Couldn't start checkout. Please try again.");
       setSelectingPlanId(null);
     }
   };
