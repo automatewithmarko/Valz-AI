@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Tables } from "./types";
+import type { Database } from "./types";
 
 type TypedClient = SupabaseClient<Database>;
 
@@ -290,24 +290,3 @@ export async function getBrandDNAPurchase(
   return data;
 }
 
-/** Create a demo Brand DNA purchase (no actual payment). */
-export async function createDemoBrandDNAPurchase(
-  supabase: TypedClient,
-  userId: string
-) {
-  // Use upsert to handle the UNIQUE constraint on user_id
-  const { data, error } = await supabase
-    .from("brand_dna_purchases")
-    .upsert(
-      {
-        user_id: userId,
-        price_cents: 9700,
-        status: "active",
-      },
-      { onConflict: "user_id" }
-    )
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
-}

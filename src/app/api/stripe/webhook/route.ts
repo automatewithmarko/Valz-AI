@@ -153,6 +153,21 @@ async function handleCheckoutCompleted(
     return;
   }
 
+  // One-time Aligned Income AI (Brand DNA) purchase.
+  if (session.metadata?.kind === "brand_dna") {
+    const paymentIntentId =
+      typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id ?? null;
+    await supabase.rpc("stripe_apply_brand_dna_purchase", {
+      p_secret: getDbBridgeSecret(),
+      p_user_id: userId,
+      p_price_cents: session.amount_total ?? 9700,
+      p_payment_intent_id: paymentIntentId ?? "",
+    });
+    return;
+  }
+
   // Subscription checkouts: customer.subscription.created arrives separately
   // with the plan + period info, so do nothing else here.
   void stripe;

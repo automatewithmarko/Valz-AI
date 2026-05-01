@@ -79,10 +79,19 @@ function ReturnInner() {
   }
 
   const isCredits = kind === "credit_topup";
-  const heading = isCredits ? "Credits added" : "Welcome to Valzacchi.ai";
+  const isBrandDna = kind === "brand_dna";
+  const heading = isCredits
+    ? "Credits added"
+    : isBrandDna
+      ? "Aligned Income AI is ready"
+      : "Welcome to Valzacchi.ai";
   const sub = isCredits
     ? "Your top-up has been processed and credits are on your account."
-    : "Your subscription is active. Let's get to work.";
+    : isBrandDna
+      ? "Your purchase is complete. Let's start your guided discovery."
+      : "Your subscription is active. Let's get to work.";
+  const continueHref = isBrandDna ? "/brand-building-dna-ai" : "/valzacchi-ai";
+  const continueLabel = isBrandDna ? "Start your discovery" : "Continue to Valzacchi.ai";
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-background px-4">
@@ -99,10 +108,10 @@ function ReturnInner() {
           </p>
         )}
         <Link
-          href="/valzacchi-ai"
+          href={continueHref}
           className="mt-6 block w-full rounded-lg bg-[#06264e] py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90"
         >
-          Continue to Valzacchi.ai
+          {continueLabel}
         </Link>
       </div>
     </div>

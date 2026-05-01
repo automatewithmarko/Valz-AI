@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, Menu, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatArea } from "@/components/chat/ChatArea";
+import { PaywallModal } from "@/components/checkout/PaywallModal";
 import { useChat } from "@/hooks/useChat";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -19,6 +20,8 @@ export default function ValzacchiAI() {
     activeChatId,
     user,
     isGenerating,
+    paywallOpen,
+    setPaywallOpen,
     createNewChat,
     selectChat,
     deleteChat,
@@ -259,6 +262,8 @@ export default function ValzacchiAI() {
           onRegenerate={regenerateLastResponse}
         />
       </div>
+
+      <PaywallModal open={paywallOpen} onOpenChange={setPaywallOpen} />
     </div>
   );
 }

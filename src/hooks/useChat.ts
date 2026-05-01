@@ -20,6 +20,16 @@ function stripDashes(text: string): string {
   return text.replaceAll("—", ", ").replaceAll("–", ", ");
 }
 
+class ChatApiError extends Error {
+  status: number;
+  code?: string;
+  constructor(status: number, code: string | undefined, message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function streamResponse(
   messages: { role: string; content: string }[],
   onChunk: (text: string) => void,
@@ -33,8 +43,17 @@ async function streamResponse(
   });
 
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`API error: ${error}`);
+    const text = await res.text();
+    let code: string | undefined;
+    let msg = text;
+    try {
+      const parsed = JSON.parse(text);
+      code = typeof parsed?.code === "string" ? parsed.code : undefined;
+      msg = typeof parsed?.error === "string" ? parsed.error : text;
+    } catch {
+      // body wasn't JSON — keep raw text as message
+    }
+    throw new ChatApiError(res.status, code, msg);
   }
 
   const reader = res.body?.getReader();
@@ -81,6 +100,7 @@ export function useChat() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const activeChat = chats.find((c) => c.id === activeChatId) ?? null;
@@ -369,7 +389,26 @@ export function useChat() {
         // characters streamed. Just refresh the UI to pick up the new balance.
         refreshUser();
       } catch (err) {
-        if ((err as Error).name !== "AbortError") {
+        if ((err as Error).name === "AbortError") {
+          // user cancelled — leave the partial message
+        } else if (
+          err instanceof ChatApiError &&
+          (err.status === 402 || err.code === "INSUFFICIENT_CREDITS")
+        ) {
+          // Out of credits: drop the empty assistant placeholder and surface
+          // the paywall modal.
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === currentChatId
+                ? {
+                    ...c,
+                    messages: c.messages.filter((m) => m.id !== assistantMsgId),
+                  }
+                : c
+            )
+          );
+          setPaywallOpen(true);
+        } else {
           setChats((prev) =>
             prev.map((c) =>
               c.id === currentChatId
@@ -574,7 +613,24 @@ export function useChat() {
       // Credits deducted server-side — refresh to show new balance
       refreshUser();
     } catch (err) {
-      if ((err as Error).name !== "AbortError") {
+      if ((err as Error).name === "AbortError") {
+        // user cancelled
+      } else if (
+        err instanceof ChatApiError &&
+        (err.status === 402 || err.code === "INSUFFICIENT_CREDITS")
+      ) {
+        setChats((prev) =>
+          prev.map((c) =>
+            c.id === currentChatId
+              ? {
+                  ...c,
+                  messages: c.messages.filter((m) => m.id !== assistantMsgId),
+                }
+              : c
+          )
+        );
+        setPaywallOpen(true);
+      } else {
         setChats((prev) =>
           prev.map((c) =>
             c.id === currentChatId
@@ -618,6 +674,8 @@ export function useChat() {
     activeChatId,
     user,
     isGenerating,
+    paywallOpen,
+    setPaywallOpen,
     createNewChat,
     selectChat,
     deleteChat,

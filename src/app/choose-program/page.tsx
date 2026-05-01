@@ -6,15 +6,11 @@ import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
 import { Check, Loader2 } from "lucide-react";
 import { useAuth } from "@/components/AuthProvider";
-import { createClient } from "@/lib/supabase/client";
-import { createDemoBrandDNAPurchase } from "@/lib/supabase/db";
 
 export default function ChooseProgramPage() {
   const router = useRouter();
-  const { session, loading, user, refreshUser } = useAuth();
-  const [supabase] = useState(() => createClient());
+  const { session, loading, user } = useAuth();
   const [activating, setActivating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -34,25 +30,14 @@ export default function ChooseProgramPage() {
   const hasConsulting = user.hasActiveSubscription;
   const hasBrandDNA = user.hasBrandDNAPurchase || user.brandDNA.configured;
 
-  const handleSelectBrandDNA = async () => {
+  const handleSelectBrandDNA = () => {
     if (hasBrandDNA) {
       // Already purchased — go straight to builder
       router.push("/brand-building-dna-ai");
       return;
     }
-
-    // Demo mode: create a demo purchase and navigate to builder
     setActivating(true);
-    setError(null);
-    try {
-      await createDemoBrandDNAPurchase(supabase, user.id);
-      await refreshUser();
-      router.push("/brand-building-dna-ai");
-    } catch (err) {
-      console.error("Failed to activate Brand DNA:", err);
-      setError("Something went wrong. Please try again.");
-      setActivating(false);
-    }
+    router.push("/checkout/brand-dna");
   };
 
   const handleSelectConsulting = () => {
@@ -87,12 +72,6 @@ export default function ChooseProgramPage() {
           Whether you&apos;re here for the first time or you&apos;re back to keep building, this is your space. Pick where you want to start today and let&apos;s get into it.
         </p>
 
-        {error && (
-          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">
-            {error}
-          </div>
-        )}
-
         {/* Product cards */}
         <div className="space-y-4">
           {/* Brand Building Blueprint */}
@@ -119,7 +98,7 @@ export default function ChooseProgramPage() {
             {activating && (
               <div className="mt-3 flex items-center gap-2 text-xs text-[#06264e]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Activating…
+                Opening checkout…
               </div>
             )}
           </button>

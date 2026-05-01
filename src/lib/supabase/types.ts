@@ -516,6 +516,15 @@ export type Database = {
         Args: { p_secret: string; p_user_id: string; p_plan_id: string }
         Returns: number
       }
+      stripe_apply_brand_dna_purchase: {
+        Args: {
+          p_secret: string
+          p_user_id: string
+          p_price_cents: number
+          p_payment_intent_id: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never
