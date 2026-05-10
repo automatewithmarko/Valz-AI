@@ -297,9 +297,10 @@ export async function POST(req: NextRequest) {
     messages: { role: string; content: string }[];
   };
 
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: "API key not configured" }), {
+  const apiKey = process.env.MENTOR_API_KEY;
+  const apiUrl = process.env.MENTOR_API_URL;
+  if (!apiKey || !apiUrl) {
+    return new Response(JSON.stringify({ error: "Mentor API not configured" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
@@ -349,23 +350,14 @@ ${kbContext}`;
     systemPrompt.length +
     messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
 
-  const upstream = await fetch("https://api.x.ai/v1/chat/completions", {
+  const upstream = await fetch(`${apiUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      // Grok 4 (the full, deep-reasoning variant — not the fast-reasoning
-      // sibling). Switched up because Grok 4 fast-reasoning kept slipping
-      // on the "It's not X, it's Y" contrast-formula rule even after
-      // hardened prompt instructions. Grok 4 produces ~5x more reasoning
-      // tokens per request, which translates to better instruction-
-      // following on subtle Writing Rules §1.2 patterns. Account limits
-      // are 500 req/min and 20M tokens/min. Reasoning is returned in a
-      // separate `reasoning_content` field that the SSE consumer below
-      // ignores, so chain-of-thought never leaks to the chat UI.
-      model: "grok-4-0709",
+      model: "xai/grok-4-0709",
       messages: [
         { role: "system", content: systemPrompt },
         ...messages.map((m) => ({ role: m.role, content: m.content })),

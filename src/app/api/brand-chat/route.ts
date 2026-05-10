@@ -617,9 +617,10 @@ export async function POST(req: NextRequest) {
 
   const { messages, mode, brandDnaContent } = await req.json();
 
-  const apiKey = process.env.XAI_API_KEY;
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: "API key not configured" }), {
+  const apiKey = process.env.MENTOR_API_KEY;
+  const apiUrl = process.env.MENTOR_API_URL;
+  if (!apiKey || !apiUrl) {
+    return new Response(JSON.stringify({ error: "Mentor API not configured" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
     });
@@ -642,14 +643,14 @@ export async function POST(req: NextRequest) {
       ? messages.slice(-MAX_CONTEXT_MESSAGES)
       : messages;
 
-  const response = await fetch("https://api.x.ai/v1/chat/completions", {
+  const response = await fetch(`${apiUrl}/chat/completions`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "grok-3-fast",
+      model: "xai/grok-3-fast",
       messages: [
         { role: "system", content: systemPrompt },
         ...trimmedMessages.map((m: { role: string; content: string }) => ({
