@@ -68,6 +68,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sbUser: SupabaseUser,
       prevUser?: User | null,
     ): Promise<{ user: User; fromDb: boolean }> => {
+      // Build the fallback user from auth metadata + prevUser. Used when
+      // the profile fetch fails or times out so the app still has *some*
+      // user object to render. Callers receive fromDb=false so any
+      // entitlement-gated redirects know not to fire on this data.
+      const buildFallbackUser = (): User => ({
+        id: sbUser.id,
+        name:
+          prevUser?.name ||
+          (sbUser.user_metadata?.full_name as string) ||
+          sbUser.email?.split("@")[0] ||
+          "User",
+        email: sbUser.email || "",
+        avatarUrl: prevUser?.avatarUrl ?? null,
+        credits: prevUser?.credits ?? 0,
+        maxCredits: prevUser?.maxCredits ?? 100,
+        monthlyCredits: prevUser?.monthlyCredits ?? null,
+        brandDNA: prevUser?.brandDNA ?? {
+          configured: false,
+          brandName: "",
+          status: "not_configured",
+          documents: [],
+        },
+        hasActiveSubscription: prevUser?.hasActiveSubscription ?? false,
+        planName: prevUser?.planName ?? null,
+        hasSelectedProgram: prevUser?.hasSelectedProgram ?? false,
+        hasBrandDNAPurchase: prevUser?.hasBrandDNAPurchase ?? false,
+      });
+
       try {
         // Wrap each query with a timeout so a single slow query can't hang
         // the whole app load. Profile gets a longer budget because cold-start
@@ -88,9 +116,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           withTimeout(getBrandDNAPurchase(supabase, sbUser.id).catch(() => null), null),
         ]);
 
-        // No profile row available (timeout, missing row, or RLS denied) —
-        // hand off to the auth-metadata fallback below.
-        if (!profile) throw new Error("Profile unavailable; using auth metadata fallback");
+        // No profile row available (timeout, missing row, or RLS denied).
+        // This is an expected path (slow network, fresh signup race, etc.)
+        // so we return the fallback silently instead of throwing — the
+        // fromDb=false signal is enough for callers to know not to act on
+        // the entitlement flags.
+        if (!profile) {
+          return { user: buildFallbackUser(), fromDb: false };
+        }
 
         const brandDNA: BrandDNA = brandDna
           ? {
@@ -150,35 +183,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           fromDb: true,
         };
       } catch (err) {
-        console.error("Error building user:", err);
-        // Fallback from auth metadata — but preserve critical flags from
-        // the previous user state so a timeout doesn't redirect users.
-        return {
-          user: {
-            id: sbUser.id,
-            name:
-              prevUser?.name ||
-              (sbUser.user_metadata?.full_name as string) ||
-              sbUser.email?.split("@")[0] ||
-              "User",
-            email: sbUser.email || "",
-            avatarUrl: prevUser?.avatarUrl ?? null,
-            credits: prevUser?.credits ?? 0,
-            maxCredits: prevUser?.maxCredits ?? 100,
-            monthlyCredits: prevUser?.monthlyCredits ?? null,
-            brandDNA: prevUser?.brandDNA ?? {
-              configured: false,
-              brandName: "",
-              status: "not_configured",
-              documents: [],
-            },
-            hasActiveSubscription: prevUser?.hasActiveSubscription ?? false,
-            planName: prevUser?.planName ?? null,
-            hasSelectedProgram: prevUser?.hasSelectedProgram ?? false,
-            hasBrandDNAPurchase: prevUser?.hasBrandDNAPurchase ?? false,
-          },
-          fromDb: false,
-        };
+        // Truly unexpected — log as warn (not error) so this doesn't paint
+        // the console red on every transient hiccup. The fallback below
+        // keeps the app usable; pages gate on fromDb=false to avoid acting
+        // on stale flags.
+        console.warn("buildUser fell back to auth metadata:", err);
+        return { user: buildFallbackUser(), fromDb: false };
       }
     },
     [supabase]
