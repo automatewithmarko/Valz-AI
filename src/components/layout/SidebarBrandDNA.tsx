@@ -75,8 +75,11 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
   };
 
   const handleBuildNow = () => {
+    // Subscribers without the one-time Blueprint purchase go straight to
+    // checkout instead of bouncing back through /choose-program (the
+    // onboarding picker), which felt like restarting the flow.
     if (!user.hasBrandDNAPurchase && !brandDNA.configured) {
-      router.push("/choose-program");
+      router.push("/checkout/brand-dna");
     } else {
       router.push("/brand-building-dna-ai");
     }

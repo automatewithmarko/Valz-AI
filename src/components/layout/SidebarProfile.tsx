@@ -86,38 +86,78 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
   const [checkoutBusy, setCheckoutBusy] = useState<string | null>(null);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
 
+  // Plan-change state. When the user clicks a plan they don't already
+  // have, we open a confirmation dialog (instead of bouncing them to
+  // Stripe's portal) so they can review the change and optionally enter
+  // a promo code. The actual switch goes through
+  // /api/stripe/subscription/change which handles upgrade-now vs.
+  // downgrade-at-period-end internally.
+  const [planChange, setPlanChange] = useState<{ plan: Plan; isUpgrade: boolean } | null>(null);
+  const [planChangePromo, setPlanChangePromo] = useState("");
+  const [planChangeBusy, setPlanChangeBusy] = useState(false);
+  const [planChangeError, setPlanChangeError] = useState<string | null>(null);
+  const [planChangeSuccess, setPlanChangeSuccess] = useState<{
+    mode: "upgrade" | "downgrade";
+    newPlanDisplayName: string;
+    scheduledFor: string | null;
+  } | null>(null);
+
+  const closePlanChange = useCallback(() => {
+    if (planChangeBusy) return;
+    setPlanChange(null);
+    setPlanChangePromo("");
+    setPlanChangeError(null);
+    setPlanChangeSuccess(null);
+  }, [planChangeBusy]);
+
   // Subscribe (no current plan) → embedded checkout page in our theme.
-  // Manage existing subscription (upgrade/downgrade/cancel) → Stripe
-  // Customer Portal (still hosted by Stripe — that's the official surface
-  // for plan management and we don't reimplement it).
+  // Change existing plan → confirm dialog → /api/stripe/subscription/change.
   const handlePlanCta = useCallback(
-    async (planId: string, isCurrent: boolean, hasActivePlan: boolean) => {
+    (plan: Plan, isCurrent: boolean, hasActivePlan: boolean, isUpgrade: boolean) => {
       if (isCurrent) return;
-      setCheckoutBusy(planId);
       setCheckoutError(null);
 
       if (!hasActivePlan) {
-        router.push(`/checkout/subscription?planId=${encodeURIComponent(planId)}`);
+        setCheckoutBusy(plan.id);
+        router.push(`/checkout/subscription?planId=${encodeURIComponent(plan.id)}`);
         return;
       }
 
-      try {
-        const res = await fetch("/api/stripe/portal", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
-        const data = await res.json();
-        if (!res.ok || !data.url) throw new Error(data.error ?? "Portal failed");
-        window.location.href = data.url;
-      } catch (err) {
-        console.error("portal cta failed", err);
-        setCheckoutError("Couldn't open billing portal. Please try again.");
-        setCheckoutBusy(null);
-      }
+      setPlanChange({ plan, isUpgrade });
+      setPlanChangePromo("");
+      setPlanChangeError(null);
+      setPlanChangeSuccess(null);
     },
     [router]
   );
+
+  const handleConfirmPlanChange = useCallback(async () => {
+    if (!planChange) return;
+    setPlanChangeBusy(true);
+    setPlanChangeError(null);
+    try {
+      const res = await fetch("/api/stripe/subscription/change", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          planId: planChange.plan.id,
+          promoCode: planChangePromo.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Plan change failed");
+      setPlanChangeSuccess({
+        mode: data.mode,
+        newPlanDisplayName: data.newPlanDisplayName,
+        scheduledFor: data.scheduledFor ?? null,
+      });
+      await refreshUser();
+    } catch (err) {
+      setPlanChangeError(err instanceof Error ? err.message : "Plan change failed");
+    } finally {
+      setPlanChangeBusy(false);
+    }
+  }, [planChange, planChangePromo, refreshUser]);
 
   const handlePurchaseCredits = useCallback(() => {
     setCheckoutBusy("credits");
@@ -478,7 +518,7 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                     </ul>
                     <button
                       disabled={isCurrent || !!checkoutBusy}
-                      onClick={() => handlePlanCta(plan.id, isCurrent, !!user.planName)}
+                      onClick={() => handlePlanCta(plan, isCurrent, !!user.planName, isUpgrade)}
                       className={`mt-5 flex w-full items-center justify-center gap-2 rounded-lg py-2 text-sm font-medium transition-all disabled:opacity-70 ${
                         isCurrent
                           ? "cursor-default border border-[#06264e]/30 bg-[#06264e]/5 text-[#06264e] opacity-80"
@@ -494,6 +534,104 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                 );
               })}
             </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Plan change confirmation */}
+      <Dialog open={!!planChange} onOpenChange={(open) => { if (!open) closePlanChange(); }}>
+        <DialogContent className="sm:max-w-md">
+          {planChangeSuccess ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {planChangeSuccess.mode === "upgrade"
+                    ? `Upgraded to ${planChangeSuccess.newPlanDisplayName}`
+                    : `Downgrade scheduled`}
+                </DialogTitle>
+                <DialogDescription>
+                  {planChangeSuccess.mode === "upgrade"
+                    ? "Your new plan is active. Prorated charges (if any) were processed on your saved card."
+                    : `You'll keep your current plan until ${
+                        planChangeSuccess.scheduledFor
+                          ? new Date(planChangeSuccess.scheduledFor).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })
+                          : "the end of this billing cycle"
+                      }, then switch to ${planChangeSuccess.newPlanDisplayName}.`}
+                </DialogDescription>
+              </DialogHeader>
+              <button
+                onClick={closePlanChange}
+                className="mt-2 w-full rounded-lg bg-[#06264e] py-2 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90"
+              >
+                Done
+              </button>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {planChange?.isUpgrade ? "Upgrade plan" : "Downgrade plan"}
+                </DialogTitle>
+                <DialogDescription>
+                  {planChange?.isUpgrade
+                    ? `Switch to ${planChange?.plan.display_name} now. We'll charge the prorated difference on your saved card today.`
+                    : `Switch to ${planChange?.plan.display_name} at the end of your current billing cycle. No charge today — you keep your current plan until then.`}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-3 py-2">
+                <div className="rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] p-3">
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm font-medium text-foreground">{planChange?.plan.display_name}</span>
+                    <span className="text-lg font-bold text-[#06264e]">
+                      {planChange ? formatPrice(planChange.plan.price_cents) : ""}
+                      <span className="text-xs font-normal text-muted-foreground">/mo</span>
+                    </span>
+                  </div>
+                  {planChange?.plan.monthly_credits != null && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {planChange.plan.monthly_credits.toLocaleString()} credits / month
+                    </p>
+                  )}
+                </div>
+
+                <label className="block">
+                  <span className="text-xs font-medium text-foreground">Promo code (optional)</span>
+                  <input
+                    type="text"
+                    value={planChangePromo}
+                    onChange={(e) => setPlanChangePromo(e.target.value)}
+                    placeholder="e.g. MYAEO100"
+                    disabled={planChangeBusy}
+                    className="mt-1 w-full rounded-lg border border-[#e0d6d0] bg-white/60 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-[#c08967]/50 focus:outline-none disabled:opacity-60"
+                  />
+                </label>
+
+                {planChangeError && (
+                  <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600">
+                    {planChangeError}
+                  </p>
+                )}
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={closePlanChange}
+                  disabled={planChangeBusy}
+                  className="flex-1 rounded-lg border border-[#e0d6d0] py-2 text-sm font-medium text-foreground transition-colors hover:bg-[#f2dacb]/30 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmPlanChange}
+                  disabled={planChangeBusy}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-[#06264e] py-2 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-70"
+                >
+                  {planChangeBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {planChange?.isUpgrade ? "Upgrade now" : "Schedule downgrade"}
+                </button>
+              </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
