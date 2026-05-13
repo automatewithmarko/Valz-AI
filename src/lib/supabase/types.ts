@@ -57,30 +57,36 @@ export type Database = {
       brand_dna_documents: {
         Row: {
           brand_dna_id: string
+          content_text: string | null
           created_at: string
           file_name: string | null
           file_path: string | null
           id: string
           label: string
           user_id: string
+          when_to_use: string | null
         }
         Insert: {
           brand_dna_id: string
+          content_text?: string | null
           created_at?: string
           file_name?: string | null
           file_path?: string | null
           id?: string
           label: string
           user_id: string
+          when_to_use?: string | null
         }
         Update: {
           brand_dna_id?: string
+          content_text?: string | null
           created_at?: string
           file_name?: string | null
           file_path?: string | null
           id?: string
           label?: string
           user_id?: string
+          when_to_use?: string | null
         }
         Relationships: [
           {

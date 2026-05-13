@@ -311,7 +311,7 @@ export async function POST(req: NextRequest) {
   let systemPrompt = SYSTEM_PROMPT;
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
-  const [brandDnaRes, kbContext] = await Promise.all([
+  const [brandDnaRes, kbContext, userDocsRes] = await Promise.all([
     supabase
       .from("brand_dnas")
       .select("blueprint_content, brand_name")
@@ -319,8 +319,14 @@ export async function POST(req: NextRequest) {
       .eq("status", "active")
       .single(),
     lastUserMessage ? buildKbContext(supabase, lastUserMessage, 6) : Promise.resolve(null),
+    supabase
+      .from("brand_dna_documents")
+      .select("label, when_to_use, content_text")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true }),
   ]);
   const brandDna = brandDnaRes.data;
+  const userDocs = userDocsRes.data ?? [];
 
   if (brandDna?.blueprint_content) {
     systemPrompt += `
@@ -334,6 +340,30 @@ If the user asks for help with something covered in their blueprint (content str
 ---
 ${brandDna.blueprint_content}
 ---`;
+  }
+
+  if (userDocs.length > 0) {
+    const docsBlock = userDocs
+      .filter((d) => d.content_text)
+      .map(
+        (d) => `### ${d.label}
+When to use: ${d.when_to_use ?? "(no guidance provided)"}
+
+---
+${d.content_text}
+---`
+      )
+      .join("\n\n");
+
+    if (docsBlock) {
+      systemPrompt += `
+
+## THE USER'S UPLOADED KNOWLEDGE BASES
+
+The user has uploaded the following reference documents in addition to their Aligned Income Blueprint. Each one comes with a "When to use" hint that tells you when it is relevant. Consult them when the user's question matches that hint. If multiple apply, combine them. If none apply, ignore them. Do not mention these documents unless the user asks.
+
+${docsBlock}`;
+    }
   }
 
   if (kbContext) {
