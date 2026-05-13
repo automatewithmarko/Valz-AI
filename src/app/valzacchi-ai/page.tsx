@@ -12,7 +12,7 @@ import { useAuth } from "@/components/AuthProvider";
 
 export default function ValzacchiAI() {
   const router = useRouter();
-  const { session, loading: authLoading, user: authUser } = useAuth();
+  const { session, loading: authLoading, user: authUser, dataReady } = useAuth();
 
   const {
     chats,
@@ -43,12 +43,15 @@ export default function ValzacchiAI() {
     }
   }, [authLoading, session, router]);
 
-  // Program guard — redirect to choose program if not selected
+  // Program guard — redirect to choose program if not selected.
+  // Gated on `dataReady` so we don't bounce a freshly-subscribed user whose
+  // entitlement flags haven't been hydrated from the DB yet (the fallback
+  // user returned by AuthProvider defaults hasSelectedProgram to false).
   useEffect(() => {
-    if (!authLoading && authUser && !authUser.hasSelectedProgram) {
+    if (!authLoading && dataReady && authUser && !authUser.hasSelectedProgram) {
       router.replace("/choose-program");
     }
-  }, [authLoading, authUser, router]);
+  }, [authLoading, dataReady, authUser, router]);
 
   // Check for brandDnaComplete query param (coming from brand DNA page)
   useEffect(() => {

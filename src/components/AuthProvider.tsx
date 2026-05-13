@@ -25,6 +25,13 @@ interface AuthContextValue {
   supabaseUser: SupabaseUser | null;
   user: User | null;
   loading: boolean;
+  // True once buildUser has returned real DB-backed data at least once in
+  // this session. Pages that redirect based on entitlement flags
+  // (hasSelectedProgram, hasActiveSubscription, …) MUST gate the redirect
+  // on this — otherwise a slow/failed fetch sends a paid user to
+  // /choose-program because the auth-metadata fallback defaults all flags
+  // to false. Sticky: once true it stays true for the rest of the session.
+  dataReady: boolean;
   signUp: (
     email: string,
     password: string,
@@ -46,14 +53,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [dataReady, setDataReady] = useState(false);
 
   // Build the app-level User object from DB data.
   // `prevUser` is the previously-known state — if a DB query times out we
   // preserve critical flags (hasSelectedProgram, hasActiveSubscription) from
   // the previous build so transient slowness doesn't bounce users to
-  // /choose-program.
+  // /choose-program. The `fromDb` flag in the result tells callers whether
+  // the returned user reflects a real profile fetch (true) or the
+  // auth-metadata fallback (false) — gating entitlement-based redirects on
+  // this is what prevents the post-checkout bounce.
   const buildUser = useCallback(
-    async (sbUser: SupabaseUser, prevUser?: User | null): Promise<User> => {
+    async (
+      sbUser: SupabaseUser,
+      prevUser?: User | null,
+    ): Promise<{ user: User; fromDb: boolean }> => {
       try {
         // Wrap each query with a timeout so a single slow query can't hang
         // the whole app load. Profile gets a longer budget because cold-start
@@ -110,54 +124,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         const monthlyCredits = subscription?.plans?.monthly_credits ?? null;
         return {
-          id: profile.id,
-          name: profile.full_name,
-          email: profile.email,
-          avatarUrl: profile.avatar_url,
-          credits: credits?.balance ?? 0,
-          // maxCredits drives the credit bar fill. Prefer the plan's monthly
-          // allocation so the bar represents "this month's usage"; fall back
-          // to lifetime purchased or current balance for users without a plan.
-          maxCredits:
-            monthlyCredits ??
-            Math.max(
-              credits?.lifetime_purchased ?? 0,
-              credits?.balance ?? 0,
-              100
-            ),
-          monthlyCredits,
-          brandDNA,
-          hasActiveSubscription: hasActiveSubscription || (prevUser?.hasActiveSubscription ?? false),
-          planName: subscription?.plans?.display_name ?? prevUser?.planName ?? null,
-          hasSelectedProgram,
-          hasBrandDNAPurchase: hasBrandDNAPurchase || (prevUser?.hasBrandDNAPurchase ?? false),
+          user: {
+            id: profile.id,
+            name: profile.full_name,
+            email: profile.email,
+            avatarUrl: profile.avatar_url,
+            credits: credits?.balance ?? 0,
+            // maxCredits drives the credit bar fill. Prefer the plan's monthly
+            // allocation so the bar represents "this month's usage"; fall back
+            // to lifetime purchased or current balance for users without a plan.
+            maxCredits:
+              monthlyCredits ??
+              Math.max(
+                credits?.lifetime_purchased ?? 0,
+                credits?.balance ?? 0,
+                100
+              ),
+            monthlyCredits,
+            brandDNA,
+            hasActiveSubscription: hasActiveSubscription || (prevUser?.hasActiveSubscription ?? false),
+            planName: subscription?.plans?.display_name ?? prevUser?.planName ?? null,
+            hasSelectedProgram,
+            hasBrandDNAPurchase: hasBrandDNAPurchase || (prevUser?.hasBrandDNAPurchase ?? false),
+          },
+          fromDb: true,
         };
       } catch (err) {
         console.error("Error building user:", err);
         // Fallback from auth metadata — but preserve critical flags from
         // the previous user state so a timeout doesn't redirect users.
         return {
-          id: sbUser.id,
-          name:
-            prevUser?.name ||
-            (sbUser.user_metadata?.full_name as string) ||
-            sbUser.email?.split("@")[0] ||
-            "User",
-          email: sbUser.email || "",
-          avatarUrl: prevUser?.avatarUrl ?? null,
-          credits: prevUser?.credits ?? 0,
-          maxCredits: prevUser?.maxCredits ?? 100,
-          monthlyCredits: prevUser?.monthlyCredits ?? null,
-          brandDNA: prevUser?.brandDNA ?? {
-            configured: false,
-            brandName: "",
-            status: "not_configured",
-            documents: [],
+          user: {
+            id: sbUser.id,
+            name:
+              prevUser?.name ||
+              (sbUser.user_metadata?.full_name as string) ||
+              sbUser.email?.split("@")[0] ||
+              "User",
+            email: sbUser.email || "",
+            avatarUrl: prevUser?.avatarUrl ?? null,
+            credits: prevUser?.credits ?? 0,
+            maxCredits: prevUser?.maxCredits ?? 100,
+            monthlyCredits: prevUser?.monthlyCredits ?? null,
+            brandDNA: prevUser?.brandDNA ?? {
+              configured: false,
+              brandName: "",
+              status: "not_configured",
+              documents: [],
+            },
+            hasActiveSubscription: prevUser?.hasActiveSubscription ?? false,
+            planName: prevUser?.planName ?? null,
+            hasSelectedProgram: prevUser?.hasSelectedProgram ?? false,
+            hasBrandDNAPurchase: prevUser?.hasBrandDNAPurchase ?? false,
           },
-          hasActiveSubscription: prevUser?.hasActiveSubscription ?? false,
-          planName: prevUser?.planName ?? null,
-          hasSelectedProgram: prevUser?.hasSelectedProgram ?? false,
-          hasBrandDNAPurchase: prevUser?.hasBrandDNAPurchase ?? false,
+          fromDb: false,
         };
       }
     },
@@ -181,8 +201,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         data: { user: sbUser },
       } = await supabase.auth.getUser();
       if (sbUser) {
-        const appUser = await buildUser(sbUser, userRef.current);
+        const { user: appUser, fromDb } = await buildUser(sbUser, userRef.current);
         setUser(appUser);
+        if (fromDb) setDataReady(true);
       }
     } finally {
       refreshingRef.current = false;
@@ -212,8 +233,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setSupabaseUser(initialSession?.user ?? null);
 
         if (initialSession?.user) {
-          const appUser = await buildUser(initialSession.user);
+          const { user: appUser, fromDb } = await buildUser(initialSession.user);
           setUser(appUser);
+          if (fromDb) setDataReady(true);
         }
       } catch (err) {
         console.error("Auth init failed:", err);
@@ -234,13 +256,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (newSession?.user) {
         try {
-          const appUser = await buildUser(newSession.user, userRef.current);
+          const { user: appUser, fromDb } = await buildUser(newSession.user, userRef.current);
           setUser(appUser);
+          if (fromDb) setDataReady(true);
         } catch (err) {
           console.error("Failed to build user on auth change:", err);
         }
       } else {
         setUser(null);
+        setDataReady(false);
       }
     });
 
@@ -315,6 +339,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     setSession(null);
     setSupabaseUser(null);
+    setDataReady(false);
   }, [supabase]);
 
   return (
@@ -324,6 +349,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         supabaseUser,
         user,
         loading,
+        dataReady,
         signUp,
         signIn,
         signOut: signOutFn,

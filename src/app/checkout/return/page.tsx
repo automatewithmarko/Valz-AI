@@ -5,12 +5,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { useAuth } from "@/components/AuthProvider";
 
 type Status = "loading" | "success" | "processing" | "failed";
 
 function ReturnInner() {
   const router = useRouter();
   const params = useSearchParams();
+  const { refreshUser } = useAuth();
   const sessionId = params.get("session_id");
   const [status, setStatus] = useState<Status>("loading");
   const [kind, setKind] = useState<string | null>(null);
@@ -36,6 +38,10 @@ function ReturnInner() {
           data.paymentStatus === "paid" || data.paymentStatus === "no_payment_required";
         if (data.status === "complete" && settled) {
           setStatus("success");
+          // Pull the freshly-written subscription/credits/etc. into the
+          // AuthProvider so the next page doesn't see stale state and
+          // bounce the user to /choose-program.
+          refreshUser().catch(() => {});
         } else if (data.status === "open") {
           setStatus("processing");
         } else {
@@ -52,7 +58,7 @@ function ReturnInner() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, refreshUser]);
 
   if (status === "loading") {
     return (
