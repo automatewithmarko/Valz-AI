@@ -9,7 +9,7 @@ export async function getProfile(supabase: TypedClient, userId: string) {
     .from("profiles")
     .select("*")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
   if (error) throw error;
   return data;
 }
@@ -20,8 +20,8 @@ export async function getCredits(supabase: TypedClient, userId: string) {
     .from("credits")
     .select("*")
     .eq("user_id", userId)
-    .single();
-  if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows
+    .maybeSingle();
+  if (error) throw error;
   return data;
 }
 
@@ -68,8 +68,8 @@ export async function getSubscription(supabase: TypedClient, userId: string) {
     .select("*, plans(*)")
     .eq("user_id", userId)
     .eq("status", "active")
-    .single();
-  if (error && error.code !== "PGRST116") throw error;
+    .maybeSingle();
+  if (error) throw error;
   return data;
 }
 
@@ -90,8 +90,8 @@ export async function getPrimaryBrandDNA(supabase: TypedClient, userId: string) 
     .select("*")
     .eq("user_id", userId)
     .eq("is_primary", true)
-    .single();
-  if (error && error.code !== "PGRST116") throw error;
+    .maybeSingle();
+  if (error) throw error;
   return data;
 }
 
@@ -285,8 +285,8 @@ export async function getBrandDNAPurchase(
     .select("*")
     .eq("user_id", userId)
     .eq("status", "active")
-    .single();
-  if (error && error.code !== "PGRST116") throw error;
+    .maybeSingle();
+  if (error) throw error;
   return data;
 }
 

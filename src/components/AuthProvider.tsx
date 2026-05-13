@@ -25,7 +25,14 @@ interface AuthContextValue {
   supabaseUser: SupabaseUser | null;
   user: User | null;
   loading: boolean;
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>;
+  signUp: (
+    email: string,
+    password: string,
+    fullName: string,
+  ) => Promise<{
+    status: "success" | "needs_confirmation" | "already_registered" | "error";
+    error: string | null;
+  }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -48,24 +55,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const buildUser = useCallback(
     async (sbUser: SupabaseUser, prevUser?: User | null): Promise<User> => {
       try {
-        // Wrap each query with a 6-second timeout so a single slow query
-        // can't hang the entire app load
-        const withTimeout = <T,>(promise: Promise<T>, fallback: T): Promise<T> =>
+        // Wrap each query with a timeout so a single slow query can't hang
+        // the whole app load. Profile gets a longer budget because cold-start
+        // hits (fresh dev server, Edge runtime warming) can legitimately take
+        // several seconds, and a null profile forces a fallback that loses
+        // info we'd rather keep.
+        const withTimeout = <T,>(promise: Promise<T>, fallback: T, ms = 6000): Promise<T> =>
           Promise.race([
             promise,
-            new Promise<T>((resolve) => setTimeout(() => resolve(fallback), 6000)),
+            new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
           ]);
 
         const [profile, credits, brandDna, subscription, brandDnaPurchase] = await Promise.all([
-          withTimeout(getProfile(supabase, sbUser.id), null),
+          withTimeout(getProfile(supabase, sbUser.id).catch(() => null), null, 10000),
           withTimeout(getCredits(supabase, sbUser.id).catch(() => null), null),
           withTimeout(getPrimaryBrandDNA(supabase, sbUser.id).catch(() => null), null),
           withTimeout(getSubscription(supabase, sbUser.id).catch(() => null), null),
           withTimeout(getBrandDNAPurchase(supabase, sbUser.id).catch(() => null), null),
         ]);
 
-        // If profile query timed out, fall through to the fallback
-        if (!profile) throw new Error("Profile query timed out");
+        // No profile row available (timeout, missing row, or RLS denied) —
+        // hand off to the auth-metadata fallback below.
+        if (!profile) throw new Error("Profile unavailable; using auth metadata fallback");
 
         const brandDNA: BrandDNA = brandDna
           ? {
@@ -261,14 +272,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(
     async (email: string, password: string, fullName: string) => {
-      const { error } = await supabase.auth.signUp({
+      const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: { full_name: fullName },
         },
       });
-      return { error: error?.message ?? null };
+      if (error) {
+        return { status: "error" as const, error: error.message };
+      }
+      // Supabase's anti-enumeration response: when the email is already
+      // registered, the call returns 200 with a fake user that has an empty
+      // `identities` array (and no session). Detect that here so the UI can
+      // tell the user to log in instead of silently doing nothing.
+      if (data.user && (data.user.identities?.length ?? 0) === 0) {
+        return { status: "already_registered" as const, error: null };
+      }
+      // No session means email confirmation is required — the user must click
+      // the link in their inbox before they can sign in.
+      if (!data.session) {
+        return { status: "needs_confirmation" as const, error: null };
+      }
+      return { status: "success" as const, error: null };
     },
     [supabase]
   );

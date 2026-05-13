@@ -16,13 +16,21 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const { signIn, signUp } = useAuth();
 
+  const switchMode = (next: "login" | "signup") => {
+    setMode(next);
+    setError(null);
+    setInfo(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setInfo(null);
     setIsLoading(true);
 
     try {
@@ -32,12 +40,24 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
           setIsLoading(false);
           return;
         }
-        const { error: signUpError } = await signUp(email, password, fullName.trim());
-        if (signUpError) {
-          setError(signUpError);
-        } else {
-          // No email confirmation required — user is logged in immediately
-          onComplete();
+        const result = await signUp(email, password, fullName.trim());
+        switch (result.status) {
+          case "success":
+            onComplete();
+            break;
+          case "needs_confirmation":
+            setInfo(
+              "Check your inbox — we sent a confirmation link to " +
+                email +
+                ". Click it, then log in."
+            );
+            break;
+          case "already_registered":
+            setError("This email is already registered.");
+            break;
+          case "error":
+            setError(result.error ?? "Something went wrong. Please try again.");
+            break;
         }
       } else {
         const { error: signInError } = await signIn(email, password);
@@ -79,7 +99,7 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
         {/* Tab toggle */}
         <div className="mb-6 flex rounded-lg border border-[#e0d6d0] bg-white/40 p-1">
           <button
-            onClick={() => { setMode("login"); setError(null); }}
+            onClick={() => switchMode("login")}
             className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
               mode === "login"
                 ? "bg-[#06264e] text-white shadow-sm"
@@ -89,7 +109,7 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
             Log in
           </button>
           <button
-            onClick={() => { setMode("signup"); setError(null); }}
+            onClick={() => switchMode("signup")}
             className={`flex-1 rounded-md py-2 text-sm font-medium transition-all ${
               mode === "signup"
                 ? "bg-[#06264e] text-white shadow-sm"
@@ -104,6 +124,22 @@ export function AuthScreen({ onComplete }: AuthScreenProps) {
         {error && (
           <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-600">
             {error}
+            {error.startsWith("This email is already registered") && (
+              <button
+                type="button"
+                onClick={() => switchMode("login")}
+                className="ml-1 font-medium underline underline-offset-2 hover:text-red-700"
+              >
+                Switch to Log in
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Info */}
+        {info && (
+          <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700">
+            {info}
           </div>
         )}
 

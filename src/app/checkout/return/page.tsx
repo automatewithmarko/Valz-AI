@@ -30,7 +30,11 @@ function ReturnInner() {
         if (!res.ok) throw new Error(data.error ?? "Failed to load session");
         if (cancelled) return;
         setKind(data.kind);
-        if (data.status === "complete" && data.paymentStatus === "paid") {
+        // "no_payment_required" covers 100%-off promo codes — Stripe still
+        // completes the session, it just doesn't take a payment.
+        const settled =
+          data.paymentStatus === "paid" || data.paymentStatus === "no_payment_required";
+        if (data.status === "complete" && settled) {
           setStatus("success");
         } else if (data.status === "open") {
           setStatus("processing");
