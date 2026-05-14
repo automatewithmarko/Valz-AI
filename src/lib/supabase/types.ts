@@ -7,11 +7,31 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
   public: {
     Tables: {
+      app_secrets: {
+        Row: {
+          key: string
+          updated_at: string
+          value: string
+        }
+        Insert: {
+          key: string
+          updated_at?: string
+          value: string
+        }
+        Update: {
+          key?: string
+          updated_at?: string
+          value?: string
+        }
+        Relationships: []
+      }
       brand_dna_chat_messages: {
         Row: {
           brand_dna_id: string
@@ -65,6 +85,7 @@ export type Database = {
           label: string
           user_id: string
           when_to_use: string | null
+          when_to_use_embedding: string | null
         }
         Insert: {
           brand_dna_id: string
@@ -76,6 +97,7 @@ export type Database = {
           label: string
           user_id: string
           when_to_use?: string | null
+          when_to_use_embedding?: string | null
         }
         Update: {
           brand_dna_id?: string
@@ -87,6 +109,7 @@ export type Database = {
           label?: string
           user_id?: string
           when_to_use?: string | null
+          when_to_use_embedding?: string | null
         }
         Relationships: [
           {
@@ -337,6 +360,42 @@ export type Database = {
           },
         ]
       }
+      kb_chunks: {
+        Row: {
+          content: string
+          created_at: string
+          embedding: string
+          heading: string
+          id: string
+          metadata: Json
+          section_path: string
+          source: string
+          token_count: number | null
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          embedding: string
+          heading: string
+          id?: string
+          metadata?: Json
+          section_path: string
+          source?: string
+          token_count?: number | null
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          embedding?: string
+          heading?: string
+          id?: string
+          metadata?: Json
+          section_path?: string
+          source?: string
+          token_count?: number | null
+        }
+        Relationships: []
+      }
       plans: {
         Row: {
           brand_dna_profile_limit: number | null
@@ -480,54 +539,77 @@ export type Database = {
         }
         Returns: number
       }
+      app_secret_check: {
+        Args: { p_key: string; p_provided: string }
+        Returns: undefined
+      }
       decrement_credit: { Args: { user_uuid: string }; Returns: number }
       deduct_credits: {
-        Args: { user_uuid: string; credit_amount: number }
+        Args: { credit_amount: number; user_uuid: string }
         Returns: number
+      }
+      match_brand_dna_documents: {
+        Args: {
+          match_count?: number
+          p_user_id: string
+          query_embedding: string
+          similarity_threshold?: number
+        }
+        Returns: {
+          content_text: string
+          id: string
+          label: string
+          similarity: number
+          when_to_use: string
+        }[]
       }
       match_kb_chunks: {
         Args: {
-          query_embedding: string
           match_count?: number
-          similarity_threshold?: number
           metadata_filter?: Json
+          query_embedding: string
+          similarity_threshold?: number
         }
         Returns: {
-          id: string
-          section_path: string
-          heading: string
           content: string
+          heading: string
+          id: string
           metadata: Json
+          section_path: string
           similarity: number
         }[]
       }
-      stripe_set_customer_id: {
-        Args: { p_secret: string; p_user_id: string; p_stripe_customer_id: string }
+      stripe_apply_brand_dna_purchase: {
+        Args: {
+          p_payment_intent_id: string
+          p_price_cents: number
+          p_secret: string
+          p_user_id: string
+        }
         Returns: undefined
       }
       stripe_apply_subscription: {
         Args: {
-          p_secret: string
-          p_user_id: string
-          p_plan_id: string
-          p_stripe_subscription_id: string
-          p_status: string
-          p_current_period_start: string
-          p_current_period_end: string
           p_cancel_at_period_end: boolean
+          p_current_period_end: string
+          p_current_period_start: string
+          p_plan_id: string
+          p_secret: string
+          p_status: string
+          p_stripe_subscription_id: string
+          p_user_id: string
         }
         Returns: undefined
       }
       stripe_grant_monthly_credits: {
-        Args: { p_secret: string; p_user_id: string; p_plan_id: string }
+        Args: { p_plan_id: string; p_secret: string; p_user_id: string }
         Returns: number
       }
-      stripe_apply_brand_dna_purchase: {
+      stripe_set_customer_id: {
         Args: {
           p_secret: string
+          p_stripe_customer_id: string
           p_user_id: string
-          p_price_cents: number
-          p_payment_intent_id: string
         }
         Returns: undefined
       }
@@ -623,3 +705,43 @@ export type TablesUpdate<
       ? U
       : never
     : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const

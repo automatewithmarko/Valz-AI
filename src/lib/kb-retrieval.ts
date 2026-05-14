@@ -13,7 +13,9 @@ type KbChunk = {
   similarity: number;
 };
 
-async function embedQuery(text: string): Promise<number[] | null> {
+// Exported so other retrieval paths (brand-dna user docs) share the same
+// embedding model + dimensions and don't drift apart.
+export async function embedQuery(text: string): Promise<number[] | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   const trimmed = text.trim().slice(0, 8000);

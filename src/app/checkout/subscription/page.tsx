@@ -1,13 +1,14 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { getPlans } from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
+import { CheckoutShell } from "@/components/checkout/CheckoutShell";
+import { OrderSummaryCard } from "@/components/checkout/OrderSummaryCard";
 import { EmbeddedCheckoutPanel } from "@/components/checkout/EmbeddedCheckoutPanel";
 import type { Plan } from "@/lib/types";
 
@@ -74,62 +75,55 @@ function SubscriptionCheckoutInner() {
     );
   }
 
-  const dollars = (plan.price_cents / 100).toFixed(plan.price_cents % 100 === 0 ? 0 : 2);
+  const dollars = (plan.price_cents / 100).toFixed(
+    plan.price_cents % 100 === 0 ? 0 : 2
+  );
+
+  // Compose the "what's included" bullets from real plan data, leading
+  // with the monthly credit allocation when present.
+  const planFeatures = ((plan.features as string[] | null) ?? []).slice(0, 3);
+  const summaryFeatures: string[] = [];
+  if (plan.monthly_credits != null) {
+    summaryFeatures.push(
+      `${plan.monthly_credits.toLocaleString()} credits every month`
+    );
+  }
+  summaryFeatures.push(...planFeatures);
+  summaryFeatures.push("Cancel anytime, no questions asked");
 
   return (
-    <div className="min-h-dvh bg-background px-4 py-10">
-      <div className="mx-auto max-w-2xl">
-        {/* Header */}
-        <button
-          onClick={() => router.back()}
-          className="mb-6 inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </button>
-
-        <div className="mb-6 flex items-center gap-3">
-          <Image src="/logo.png" alt="Valzacchi.ai" width={48} height={48} className="h-12 w-12" priority />
-          <div>
-            <p className="text-xs uppercase tracking-wider text-muted-foreground">Subscribe</p>
-            <h1 className="text-xl font-bold text-foreground">{plan.display_name}</h1>
-          </div>
-        </div>
-
-        {/* Order summary */}
-        <div className="mb-6 rounded-xl border border-[#06264e]/15 bg-[#06264e]/[0.04] p-5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm font-medium text-foreground">Monthly subscription</span>
-            <span className="text-2xl font-bold text-[#06264e]">${dollars}<span className="text-sm font-normal text-muted-foreground">/mo</span></span>
-          </div>
-          {plan.monthly_credits != null && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              {plan.monthly_credits.toLocaleString()} credits per month · cancel anytime
-            </p>
-          )}
-        </div>
-
-        {/* Embedded Stripe form */}
-        <EmbeddedCheckoutPanel
-          endpoint="/api/stripe/checkout/subscription"
-          body={{ planId }}
+    <CheckoutShell
+      eyebrow="Subscribe"
+      title={plan.display_name}
+      subtitle="The Back Pocket AI · monthly subscription"
+      summary={
+        <OrderSummaryCard
+          productIcon={Sparkles}
+          productName={plan.display_name}
+          productMeta="Billed monthly · auto-renews"
+          amountLabel={`$${dollars}`}
+          amountSuffix="/mo"
+          features={summaryFeatures}
         />
-
-        <p className="mt-4 text-center text-xs text-muted-foreground">
-          Payments are securely processed by Stripe.
-        </p>
-      </div>
-    </div>
+      }
+    >
+      <EmbeddedCheckoutPanel
+        endpoint="/api/stripe/checkout/subscription"
+        body={{ planId }}
+      />
+    </CheckoutShell>
   );
 }
 
 export default function SubscriptionCheckoutPage() {
   return (
-    <Suspense fallback={
-      <div className="flex min-h-dvh items-center justify-center bg-background">
-        <Loader2 className="h-8 w-8 animate-spin text-[#06264e]" />
-      </div>
-    }>
+    <Suspense
+      fallback={
+        <div className="flex min-h-dvh items-center justify-center bg-background">
+          <Loader2 className="h-8 w-8 animate-spin text-[#06264e]" />
+        </div>
+      }
+    >
       <SubscriptionCheckoutInner />
     </Suspense>
   );

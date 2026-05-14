@@ -24,7 +24,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { credits } = (await req.json()) as { credits?: number };
+  const { credits, promoCode } = (await req.json()) as {
+    credits?: number;
+    promoCode?: string;
+  };
   if (
     !credits ||
     !Number.isInteger(credits) ||
@@ -69,6 +72,27 @@ export async function POST(req: NextRequest) {
   const origin = (process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).replace(/\/$/, "");
   const totalCents = credits * CREDIT_UNIT_AMOUNT_CENTS;
 
+  // Resolve the optional promo code into a Stripe promotion_code id. We
+  // can't pass the human-typed code directly to `discounts`; Stripe wants
+  // the `promo_…` id, which means a lookup. Mutually exclusive with
+  // allow_promotion_codes when set, so we toggle that off if we're
+  // applying a discount upfront.
+  let promotionCodeId: string | undefined;
+  if (promoCode?.trim()) {
+    const promos = await stripe.promotionCodes.list({
+      code: promoCode.trim(),
+      active: true,
+      limit: 1,
+    });
+    if (promos.data.length === 0) {
+      return NextResponse.json(
+        { error: `Promo code "${promoCode.trim()}" not found or inactive.` },
+        { status: 400 }
+      );
+    }
+    promotionCodeId = promos.data[0].id;
+  }
+
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     ui_mode: "embedded_page",
@@ -85,7 +109,13 @@ export async function POST(req: NextRequest) {
       },
     ],
     return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
-    allow_promotion_codes: true,
+    // Stripe API rule: `discounts` and `allow_promotion_codes` cannot both
+    // be set. When we pre-apply ours, drop the in-iframe entry; otherwise
+    // keep it so users with their own code can still enter it inside the
+    // Stripe form.
+    ...(promotionCodeId
+      ? { discounts: [{ promotion_code: promotionCodeId }] }
+      : { allow_promotion_codes: true }),
     metadata: {
       supabase_user_id: user.id,
       kind: "credit_topup",

@@ -101,22 +101,51 @@ function formatChunks(chunks) {
     .join("\n\n---\n\n");
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function isRetryable(err) {
+  const msg = String(err?.message ?? err);
+  return (
+    /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|socket hang up|network/i.test(msg) ||
+    /\b(429|500|502|503|504)\b/.test(msg)
+  );
+}
+
+async function withBackoff(fn, label) {
+  const delays = [2000, 4000, 8000, 16000, 30000];
+  let lastErr;
+  for (let i = 0; i <= delays.length; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i === delays.length || !isRetryable(err)) throw err;
+      const wait = delays[i] + Math.floor(Math.random() * 500);
+      console.log(`   ↺ ${label} attempt ${i + 1} failed (${String(err.message).slice(0, 80)}). Retrying in ${wait}ms…`);
+      await sleep(wait);
+    }
+  }
+  throw lastErr;
+}
+
 async function callGrok(systemPrompt, messages) {
-  const res = await fetch("https://api.x.ai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.XAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "grok-3-fast",
-      messages: [{ role: "system", content: systemPrompt }, ...messages],
-      stream: false,
-    }),
-  });
-  if (!res.ok) throw new Error(`grok: ${res.status} ${await res.text()}`);
-  const d = await res.json();
-  return d.choices[0].message.content;
+  return withBackoff(async () => {
+    const res = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.XAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "grok-3-fast",
+        messages: [{ role: "system", content: systemPrompt }, ...messages],
+        stream: false,
+      }),
+    });
+    if (!res.ok) throw new Error(`grok: ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const d = await res.json();
+    return d.choices[0].message.content;
+  }, "grok-call");
 }
 
 // Each scenario:
@@ -356,7 +385,9 @@ async function runScenario(systemPromptBase, sc) {
   const sys = await loadChatSystemPrompt();
   console.log(`Loaded chat SYSTEM_PROMPT (${sys.length} chars). Running ${SCENARIOS.length} TikTok scenarios…`);
   const results = [];
+  let idx = 0;
   for (const sc of SCENARIOS) {
+    if (idx++ > 0) await sleep(1500);
     try {
       results.push(await runScenario(sys, sc));
     } catch (err) {

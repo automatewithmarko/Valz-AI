@@ -1,6 +1,10 @@
 import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { buildKbContext } from "@/lib/kb-retrieval";
+import {
+  formatDocsForPrompt,
+  matchBrandDnaDocs,
+} from "@/lib/brand-dna-retrieval";
 
 const SYSTEM_PROMPT = `You are Valzacchi.ai, a personal brand consultant and marketing strategist. You talk like a sharp, experienced coach sitting across the table from someone, not like a search engine or a textbook.
 
@@ -324,7 +328,7 @@ export async function POST(req: NextRequest) {
   let systemPrompt = SYSTEM_PROMPT;
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
-  const [brandDnaRes, kbContext, userDocsRes] = await Promise.all([
+  const [brandDnaRes, kbContext, matchedDocs, unembeddedDocsRes] = await Promise.all([
     supabase
       .from("brand_dnas")
       .select("blueprint_content, brand_name")
@@ -332,14 +336,25 @@ export async function POST(req: NextRequest) {
       .eq("status", "active")
       .single(),
     lastUserMessage ? buildKbContext(supabase, lastUserMessage, 6) : Promise.resolve(null),
+    // Retrieve only the user-uploaded docs whose "when_to_use" hint is
+    // semantically close to the live query — that's how the hint becomes
+    // load-bearing. Threshold + match_count are tuned in the helper.
+    lastUserMessage
+      ? matchBrandDnaDocs(supabase, user.id, lastUserMessage)
+      : Promise.resolve([]),
+    // Legacy fallback: any doc that hasn't been embedded yet (uploaded
+    // before the embedding column existed, or upload-time embedding
+    // failed). Include them unconditionally so old uploads still work
+    // until they're backfilled.
     supabase
       .from("brand_dna_documents")
       .select("label, when_to_use, content_text")
       .eq("user_id", user.id)
+      .is("when_to_use_embedding", null)
       .order("created_at", { ascending: true }),
   ]);
   const brandDna = brandDnaRes.data;
-  const userDocs = userDocsRes.data ?? [];
+  const unembeddedDocs = unembeddedDocsRes.data ?? [];
 
   if (brandDna?.blueprint_content) {
     systemPrompt += `
@@ -355,29 +370,14 @@ ${brandDna.blueprint_content}
 ---`;
   }
 
-  if (userDocs.length > 0) {
-    const docsBlock = userDocs
-      .filter((d) => d.content_text)
-      .map(
-        (d) => `### ${d.label}
-When to use: ${d.when_to_use ?? "(no guidance provided)"}
-
----
-${d.content_text}
----`
-      )
-      .join("\n\n");
-
-    if (docsBlock) {
-      systemPrompt += `
-
-## THE USER'S UPLOADED KNOWLEDGE BASES
-
-The user has uploaded the following reference documents in addition to their Aligned Income Blueprint. Each one comes with a "When to use" hint that tells you when it is relevant. Consult them when the user's question matches that hint. If multiple apply, combine them. If none apply, ignore them. Do not mention these documents unless the user asks.
-
-${docsBlock}`;
-    }
-  }
+  // Order matters here. On the mentor branch the system prompt went:
+  //   SYSTEM_PROMPT → Blueprint → Main content-strategy KB.
+  // Per-user uploaded docs were added later and got injected between the
+  // Blueprint and the main KB, which pulled the model's gravity away
+  // from the main KB (the canonical frameworks + writing rules every
+  // user shares). Restore the original order so the main KB sits right
+  // after the Blueprint, then append per-user docs at the end as a
+  // supplementary block whose intro explicitly defers to the main KB.
 
   if (kbContext) {
     systemPrompt += `
@@ -385,6 +385,39 @@ ${docsBlock}`;
 ## CONTENT STRATEGY KNOWLEDGE BASE (RETRIEVED)
 
 ${kbContext}`;
+  }
+
+  // Combine retrieval matches + legacy un-embedded docs. The matched-
+  // docs block is the precise path; the legacy block is the safety net
+  // until backfill runs.
+  const retrievedBlock = formatDocsForPrompt(matchedDocs);
+  const legacyBlock = unembeddedDocs
+    .filter((d) => d.content_text)
+    .map(
+      (d) => `### ${d.label}
+When to use: ${d.when_to_use ?? "(no guidance provided)"}
+
+---
+${d.content_text}
+---`
+    )
+    .join("\n\n");
+  const docsBlock = [retrievedBlock, legacyBlock].filter(Boolean).join("\n\n");
+
+  if (docsBlock) {
+    systemPrompt += `
+
+## THE USER'S SUPPLEMENTARY KNOWLEDGE BASES (USER-UPLOADED)
+
+The user has uploaded the reference documents below in addition to their Aligned Income Blueprint. They are **supplementary context for this specific user's world** — examples, swipes, brand voice samples, niche references — not framework or writing-rule sources.
+
+Hard rules for using this block:
+- The "## CONTENT STRATEGY KNOWLEDGE BASE (RETRIEVED)" section above remains the ground truth for every framework choice, every Plug-and-Play structure, every slide/beat label, and every writing rule. Nothing in this user-uploaded block overrides, replaces, or competes with it.
+- Use the user-uploaded docs only as background context for *this user's* niche, voice, or examples — to make the framework-based deliverable feel personal and specific. Never lift slide structures, framework names, or writing-rule guidance from a user-uploaded doc.
+- Each doc carries a "When to use" hint. The docs below were already filtered by similarity against that hint. Still, if a doc doesn't actually fit the live question, set it aside silently.
+- Do not mention these documents unless the user asks about them directly.
+
+${docsBlock}`;
   }
 
   // Count input characters: system prompt + all user/assistant messages
