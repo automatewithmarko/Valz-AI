@@ -7,6 +7,7 @@ import { Loader2, Menu, X } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { PaywallModal } from "@/components/checkout/PaywallModal";
+import { FirstUseWelcomeDialog } from "@/components/chat/FirstUseWelcomeDialog";
 import { useChat } from "@/hooks/useChat";
 import { useAuth } from "@/components/AuthProvider";
 
@@ -263,10 +264,12 @@ export default function ValzacchiAI() {
           isGenerating={isGenerating}
           onSend={sendMessage}
           onRegenerate={regenerateLastResponse}
+          onStartWithOpening={startWithOpening}
         />
       </div>
 
       <PaywallModal open={paywallOpen} onOpenChange={setPaywallOpen} />
+      <FirstUseWelcomeDialog userId={user.id} />
     </div>
   );
 }

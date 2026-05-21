@@ -17,20 +17,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { planId } = (await req.json()) as { planId?: string };
+  const { planId, interval } = (await req.json()) as {
+    planId?: string;
+    interval?: "monthly" | "yearly";
+  };
   if (!planId) return NextResponse.json({ error: "planId required" }, { status: 400 });
+  const billingInterval: "monthly" | "yearly" = interval === "yearly" ? "yearly" : "monthly";
 
   const { data: plan, error: planError } = await supabase
     .from("plans")
-    .select("id, name, stripe_price_id, display_name")
+    .select("id, name, stripe_price_id, stripe_yearly_price_id, display_name")
     .eq("id", planId)
     .single();
   if (planError || !plan) {
     return NextResponse.json({ error: "Plan not found" }, { status: 404 });
   }
-  if (!plan.stripe_price_id) {
+  const priceId =
+    billingInterval === "yearly" ? plan.stripe_yearly_price_id : plan.stripe_price_id;
+  if (!priceId) {
     return NextResponse.json(
-      { error: "Plan is not configured for Stripe checkout (missing stripe_price_id)" },
+      {
+        error: `Plan is not configured for ${billingInterval} Stripe checkout (missing price id)`,
+      },
       { status: 500 }
     );
   }
@@ -72,13 +80,23 @@ export async function POST(req: NextRequest) {
     ui_mode: "embedded_page",
     customer: customerId,
     customer_email: customerId ? undefined : profile?.email ?? user.email,
-    line_items: [{ price: plan.stripe_price_id, quantity: 1 }],
+    line_items: [{ price: priceId, quantity: 1 }],
     return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
     allow_promotion_codes: true,
     subscription_data: {
-      metadata: { supabase_user_id: user.id, plan_id: plan.id, plan_name: plan.name },
+      metadata: {
+        supabase_user_id: user.id,
+        plan_id: plan.id,
+        plan_name: plan.name,
+        billing_interval: billingInterval,
+      },
     },
-    metadata: { supabase_user_id: user.id, plan_id: plan.id, kind: "subscription" },
+    metadata: {
+      supabase_user_id: user.id,
+      plan_id: plan.id,
+      kind: "subscription",
+      billing_interval: billingInterval,
+    },
   });
 
   return NextResponse.json({ clientSecret: session.client_secret });

@@ -10,6 +10,19 @@ import { getPlans } from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
 import type { Plan } from "@/lib/types";
 
+type PlanFeature = { text: string; hint?: string };
+
+// `plans.features` can be either the legacy string[] shape or the richer
+// {text, hint?}[] shape. Normalize both into a consistent list for render.
+function normalizeFeatures(raw: unknown): PlanFeature[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) =>
+    typeof item === "string"
+      ? { text: item }
+      : { text: String((item as { text?: unknown }).text ?? ""), hint: (item as { hint?: string }).hint }
+  );
+}
+
 const planMeta: Record<string, { cta: string; highlighted: boolean; description: string }> = {
   starter: {
     cta: "Get Back Pocket",
@@ -28,6 +41,8 @@ const planMeta: Record<string, { cta: string; highlighted: boolean; description:
   },
 };
 
+type BillingInterval = "monthly" | "yearly";
+
 export default function ChooseYourPlanPage() {
   const router = useRouter();
   const { session, loading: authLoading, user, supabaseUser } = useAuth();
@@ -36,6 +51,7 @@ export default function ChooseYourPlanPage() {
   const [loadingPlans, setLoadingPlans] = useState(true);
   const [selectingPlanId, setSelectingPlanId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [interval, setInterval] = useState<BillingInterval>("monthly");
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -71,13 +87,17 @@ export default function ChooseYourPlanPage() {
     if (!supabaseUser || selectingPlanId) return;
     setSelectingPlanId(plan.id);
     setError(null);
-    router.push(`/checkout/subscription?planId=${encodeURIComponent(plan.id)}`);
+    router.push(
+      `/checkout/subscription?planId=${encodeURIComponent(plan.id)}&interval=${interval}`
+    );
   };
 
   const formatPrice = (cents: number) => {
     const dollars = cents / 100;
-    return dollars % 1 === 0 ? `$${dollars}` : `$${dollars.toFixed(2)}`;
+    return dollars % 1 === 0 ? `A$${dollars}` : `A$${dollars.toFixed(2)}`;
   };
+
+  const yearlyAvailable = plans.every((p) => p.yearly_price_cents != null);
 
   if (authLoading || loadingPlans || !session) {
     return (
@@ -101,9 +121,46 @@ export default function ChooseYourPlanPage() {
 
       {/* Headline */}
       <h1 className="mb-2 text-2xl font-bold text-foreground">Unlock Back Pocket AI</h1>
-      <p className="mb-8 text-sm text-muted-foreground">
+      <p className="mb-6 text-sm text-muted-foreground">
         Select the plan that best fits your brand needs.
       </p>
+
+      {/* Billing interval toggle */}
+      {yearlyAvailable && (
+        <div
+          role="tablist"
+          aria-label="Billing interval"
+          className="mb-8 inline-flex items-center rounded-full border border-[#e0d6d0] bg-white/60 p-1 text-sm"
+        >
+          {(["monthly", "yearly"] as const).map((value) => {
+            const active = interval === value;
+            return (
+              <button
+                key={value}
+                role="tab"
+                aria-selected={active}
+                onClick={() => setInterval(value)}
+                className={`relative rounded-full px-4 py-1.5 font-medium transition-all ${
+                  active
+                    ? "bg-[#06264e] text-white shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {value === "monthly" ? "Monthly" : "Annual"}
+                {value === "yearly" && (
+                  <span
+                    className={`ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                      active ? "bg-white/20 text-white" : "bg-[#f2dacb] text-[#06264e]"
+                    }`}
+                  >
+                    Save
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Error */}
       {error && (
@@ -116,8 +173,14 @@ export default function ChooseYourPlanPage() {
       <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
         {plans.map((plan) => {
           const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false, description: "" };
-          const features = (plan.features as string[]) ?? [];
+          const features = normalizeFeatures(plan.features);
           const isSelecting = selectingPlanId === plan.id;
+          const isYearly = interval === "yearly" && plan.yearly_price_cents != null;
+          const displayCents = isYearly ? plan.yearly_price_cents! : plan.price_cents;
+          const priceSuffix = isYearly ? "/year" : "/month";
+          const monthlyEquivalentCents = isYearly
+            ? Math.round(plan.yearly_price_cents! / 12)
+            : null;
 
           return (
             <div
@@ -138,9 +201,14 @@ export default function ChooseYourPlanPage() {
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{meta.description}</p>
               )}
               <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-3xl font-bold text-foreground">{formatPrice(plan.price_cents)}</span>
-                <span className="text-sm text-muted-foreground">/month</span>
+                <span className="text-3xl font-bold text-foreground">{formatPrice(displayCents)}</span>
+                <span className="text-sm text-muted-foreground">{priceSuffix}</span>
               </div>
+              {monthlyEquivalentCents != null && (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  ~{formatPrice(monthlyEquivalentCents)}/month, billed yearly
+                </p>
+              )}
               {plan.monthly_credits != null && (
                 <div className="mt-3 rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] px-3 py-2">
                   <div className="flex items-baseline gap-1.5">
@@ -156,14 +224,27 @@ export default function ChooseYourPlanPage() {
                   </p>
                 </div>
               )}
-              <ul className="mt-4 flex-1 space-y-2">
+              <ul className="mt-4 space-y-2">
                 {features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
+                  <li key={feature.text} className="flex items-start gap-2 text-xs text-foreground">
                     <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
-                    {feature}
+                    <div className="min-w-0">
+                      <span>{feature.text}</span>
+                      {feature.hint && (
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                          {feature.hint}
+                        </p>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
+              {plan.tagline && (
+                <p className="mt-3 text-[11px] italic leading-relaxed text-muted-foreground">
+                  {plan.tagline}
+                </p>
+              )}
+              <div className="flex-1" />
               <button
                 onClick={() => handleSelectPlan(plan)}
                 disabled={!!selectingPlanId}

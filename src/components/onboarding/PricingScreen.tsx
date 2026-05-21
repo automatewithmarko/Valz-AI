@@ -10,11 +10,34 @@ import { useAuth } from "@/components/AuthProvider";
 import type { Plan } from "@/lib/types";
 
 // Feature descriptions for display (maps plan name → display metadata)
-const planMeta: Record<string, { cta: string; highlighted: boolean }> = {
-  starter: { cta: "Get Started", highlighted: false },
-  growth: { cta: "Upgrade to Growth", highlighted: true },
-  pro: { cta: "Go Pro", highlighted: false },
+const planMeta: Record<string, { cta: string; highlighted: boolean; description: string }> = {
+  starter: {
+    cta: "Get Started",
+    highlighted: false,
+    description: "Your entry point into having real strategy support whenever you need it.",
+  },
+  growth: {
+    cta: "Upgrade to Growth",
+    highlighted: true,
+    description: "For when you're ready to go deeper and need support that keeps up with you.",
+  },
+  pro: {
+    cta: "Go Pro",
+    highlighted: false,
+    description: "For the person who wants it all, fast, and without limits.",
+  },
 };
+
+type PlanFeature = { text: string; hint?: string };
+
+function normalizeFeatures(raw: unknown): PlanFeature[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) =>
+    typeof item === "string"
+      ? { text: item }
+      : { text: String((item as { text?: unknown }).text ?? ""), hint: (item as { hint?: string }).hint }
+  );
+}
 
 interface PricingScreenProps {
   onComplete: () => void;
@@ -68,7 +91,7 @@ export function PricingScreen({ onComplete: _onComplete }: PricingScreenProps) {
     }
   };
 
-  const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
+  const formatPrice = (cents: number) => `A$${(cents / 100).toFixed(0)}`;
 
   if (loadingPlans) {
     return (
@@ -108,8 +131,8 @@ export function PricingScreen({ onComplete: _onComplete }: PricingScreenProps) {
       {/* Pricing cards */}
       <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
         {plans.map((plan) => {
-          const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false };
-          const features = (plan.features as string[]) ?? [];
+          const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false, description: "" };
+          const features = normalizeFeatures(plan.features);
           const isSelecting = selectingPlanId === plan.id;
 
           return (
@@ -127,6 +150,9 @@ export function PricingScreen({ onComplete: _onComplete }: PricingScreenProps) {
                 </span>
               )}
               <h3 className="text-sm font-semibold text-foreground">{plan.display_name}</h3>
+              {meta.description && (
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{meta.description}</p>
+              )}
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="text-3xl font-bold text-foreground">{formatPrice(plan.price_cents)}</span>
                 <span className="text-sm text-muted-foreground">/month</span>
@@ -146,14 +172,27 @@ export function PricingScreen({ onComplete: _onComplete }: PricingScreenProps) {
                   </p>
                 </div>
               )}
-              <ul className="mt-4 flex-1 space-y-2">
+              <ul className="mt-4 space-y-2">
                 {features.map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
+                  <li key={feature.text} className="flex items-start gap-2 text-xs text-foreground">
                     <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
-                    {feature}
+                    <div className="min-w-0">
+                      <span>{feature.text}</span>
+                      {feature.hint && (
+                        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                          {feature.hint}
+                        </p>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
+              {plan.tagline && (
+                <p className="mt-3 text-[11px] italic leading-relaxed text-muted-foreground">
+                  {plan.tagline}
+                </p>
+              )}
+              <div className="flex-1" />
               <button
                 onClick={() => handleSelectPlan(plan)}
                 disabled={!!selectingPlanId}

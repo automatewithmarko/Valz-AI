@@ -41,13 +41,13 @@ export function ProductSelectScreen({ onSelectConsulting, onBack }: ProductSelec
 
         {/* Product cards */}
         <div className="space-y-4">
-          {/* Brand Building Blueprint */}
+          {/* Aligned Income Ai */}
           <button
             onClick={() => router.push("/brand-building-dna-ai")}
             className="w-full rounded-xl border border-[#e0d6d0] bg-background px-6 py-6 text-left shadow-sm transition-all hover:shadow-xl"
           >
-            <h3 className="text-lg font-semibold text-foreground">Brand Building Blueprint AI</h3>
-            <p className="mt-1 text-sm text-muted-foreground">$97 one-time fee</p>
+            <h3 className="text-lg font-semibold text-foreground">Aligned Income Ai</h3>
+            <p className="mt-1 text-sm text-muted-foreground">A$97 one-time fee</p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               An AI-guided experience that walks you through the entire Cass Valzacchi Human Design
               Framework. You&apos;ll define your brand DNA, nail your messaging, identify your ideal

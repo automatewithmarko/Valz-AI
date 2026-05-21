@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getDbBridgeSecret, getStripe } from "@/lib/stripe";
 
-// One-time $97 Aligned Income AI (Brand DNA) purchase via Stripe Embedded
+// One-time A$97 Aligned Income AI (Brand DNA) purchase via Stripe Embedded
 // Checkout. Returns a client_secret that /checkout/brand-dna mounts. On
 // success Stripe redirects to /checkout/return?session_id=… and the
 // webhook records the purchase.
-const BRAND_DNA_PRICE_CENTS = 9700;
+//
+// We use a saved Stripe price (rather than inline price_data) so the
+// MYAEO100 coupon, which restricts by product, can apply to this purchase.
+const BRAND_DNA_AUD_PRICE_ID = "price_1TZKr5AvuajKo7fO8ZIVQ88X";
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -65,20 +68,7 @@ export async function POST(req: NextRequest) {
     ui_mode: "embedded_page",
     customer: customerId,
     customer_email: customerId ? undefined : profile?.email ?? user.email,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: "usd",
-          unit_amount: BRAND_DNA_PRICE_CENTS,
-          product_data: {
-            name: "Aligned Income AI",
-            description:
-              "One-time purchase. Guided discovery for digital product ideas built on your story, skills, and Human Design.",
-          },
-        },
-      },
-    ],
+    line_items: [{ price: BRAND_DNA_AUD_PRICE_ID, quantity: 1 }],
     return_url: `${origin}/checkout/return?session_id={CHECKOUT_SESSION_ID}`,
     allow_promotion_codes: true,
     metadata: {

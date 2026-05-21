@@ -74,7 +74,7 @@ export default function ChooseProgramPage() {
 
         {/* Product cards */}
         <div className="space-y-4">
-          {/* Brand Building Blueprint */}
+          {/* Aligned Income Ai */}
           <button
             onClick={handleSelectBrandDNA}
             disabled={activating}
@@ -91,7 +91,7 @@ export default function ChooseProgramPage() {
               </span>
             )}
             <h3 className="text-lg font-semibold text-foreground">Aligned Income AI</h3>
-            <p className="mt-1 text-sm text-muted-foreground">$97 one-time fee</p>
+            <p className="mt-1 text-sm text-muted-foreground">A$97 one-time fee</p>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Not sure what you could actually sell online? This is where you start. Through a guided discovery process built around your real life experience, skills, and story, and factoring in your Human Design so the direction actually suits how you work best, this tool comes back with digital product ideas that feel specific, realistic, and genuinely aligned with who you are. What&apos;s on the other side of that clarity is income that belongs to you, built from knowledge you already have, and that&apos;s how the life you&apos;ve been picturing starts to become the one you&apos;re actually living.
             </p>

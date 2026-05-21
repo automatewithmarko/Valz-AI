@@ -16,6 +16,7 @@ function SubscriptionCheckoutInner() {
   const router = useRouter();
   const params = useSearchParams();
   const planId = params.get("planId");
+  const interval = params.get("interval") === "yearly" ? "yearly" : "monthly";
   const { session, loading: authLoading } = useAuth();
   const [plan, setPlan] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -75,9 +76,9 @@ function SubscriptionCheckoutInner() {
     );
   }
 
-  const dollars = (plan.price_cents / 100).toFixed(
-    plan.price_cents % 100 === 0 ? 0 : 2
-  );
+  const isYearly = interval === "yearly" && plan.yearly_price_cents != null;
+  const activeCents = isYearly ? plan.yearly_price_cents! : plan.price_cents;
+  const dollars = (activeCents / 100).toFixed(activeCents % 100 === 0 ? 0 : 2);
 
   // Compose the "what's included" bullets from real plan data, leading
   // with the monthly credit allocation when present.
@@ -95,21 +96,21 @@ function SubscriptionCheckoutInner() {
     <CheckoutShell
       eyebrow="Subscribe"
       title={plan.display_name}
-      subtitle="The Back Pocket AI · monthly subscription"
+      subtitle={`The Back Pocket AI · ${isYearly ? "annual" : "monthly"} subscription`}
       summary={
         <OrderSummaryCard
           productIcon={Sparkles}
           productName={plan.display_name}
-          productMeta="Billed monthly · auto-renews"
-          amountLabel={`$${dollars}`}
-          amountSuffix="/mo"
+          productMeta={isYearly ? "Billed yearly · auto-renews" : "Billed monthly · auto-renews"}
+          amountLabel={`A$${dollars}`}
+          amountSuffix={isYearly ? "/yr" : "/mo"}
           features={summaryFeatures}
         />
       }
     >
       <EmbeddedCheckoutPanel
         endpoint="/api/stripe/checkout/subscription"
-        body={{ planId }}
+        body={{ planId, interval }}
       />
     </CheckoutShell>
   );

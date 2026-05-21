@@ -1,0 +1,13 @@
+## Step 2: Identity Pattern Extraction
+
+You have walked through the specific chapters that shaped you, from the eight years building dashboards in financial services to the two years freelancing with early-stage founders and the 2am Googling that marked your burnout at 28. This section sits here because those lived moments contain the repeating patterns that explain why some work has always felt like an exhale while other work created the chest-clench. Seeing them clearly now gives you the foundation for everything that follows.
+
+Your repeating life theme is making the invisible visible. Whether it was the one-pagers and dashboards that became the team's go-to artefacts or the weekly energy journalling that helped you separate green-zone strategy work from red-zone operational management, you have a consistent gift for turning murky systems into something people can actually see and use. Emotionally, this shows up as a quiet competence that others rely on, paired with an internal exhaustion when that competence keeps you responsible for deliverables that are not truly yours.
+
+The core wound underneath is the sense of being competent but invisible. It surfaces in the identity-crisis stretch after relocation, in the embarrassment of Googling alignment at 11pm, and in the misaligned six-month consulting gig that triggered the chest-clench. You have been attached to the identity of the reliable person who can always produce the artefact or fix the process, even when it costs your own energy. At the same time you are resisting stepping fully into the identity of the guide who waits to be invited and then offers sharp, selective insight without carrying the operational load.
+
+Your core gift is the ability to read energetic fit and translate it into practical direction. This is what made the brand strategy freelancing feel natural and what makes your audience of women in their 30s, late-corporate or recently exited, recognise themselves in you. You overextend when you step into roles that require constant output or responsibility for other people's work, as seen in the corporate Zoom grind and the operational consulting that drained you. You play small when you keep proving your value through visible artefacts rather than trusting that your invitation-based presence is enough.
+
+This pattern of turning invisible structures into visible ones while protecting your own energy is the raw material the next step turns into intellectual property. It leads into Step 3, where we extract the exact methods and perspectives you can package.
+
+Does this feel right, or would you like me to adjust anything?

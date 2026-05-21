@@ -547,7 +547,7 @@ function ProfileModal({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
               </span>
-              <p className="text-sm font-medium text-foreground">Brand Building Blueprint</p>
+              <p className="text-sm font-medium text-foreground">Aligned Income Ai</p>
             </div>
             <p className="mt-1 ml-4 text-xs text-muted-foreground">Active</p>
 
@@ -1679,10 +1679,11 @@ function BrandBuildingContent() {
             <div className="mb-4 flex justify-center">
               <Image src="/logo.png" alt="Valzacchi.ai" width={180} height={180} className="h-auto w-auto" priority />
             </div>
-            <h1 className="mb-2 text-2xl font-semibold text-[#06264e]">Brand Building Blueprint</h1>
+            <h1 className="mb-2 text-2xl font-semibold text-[#06264e]">Aligned Income Ai</h1>
             <p className="mx-auto mb-8 max-w-md text-sm leading-relaxed text-muted-foreground">
-              An AI-guided experience that walks you through the Cass Valzacchi Human Design Framework
-              to build your complete brand DNA — your identity, messaging, audience, and strategy.
+              You already have everything needed to build an income operating in total alignment.
+              Your story, life experiences and knowledge are all utterly unique. Now it&rsquo;s time
+              to turn it into something powerful. Let&rsquo;s go.
             </p>
             <button
               onClick={handleStart}
@@ -1712,7 +1713,12 @@ function BrandBuildingContent() {
                   <X className="h-4 w-4" />
                 </button>
                 <h2 className="mb-2 text-lg font-bold text-foreground">Unlock Back Pocket AI</h2>
-                <p className="mb-4 text-sm text-muted-foreground">Choose a Consulting AI plan to unlock your marketing assistant.</p>
+                <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+                  <strong className="text-foreground">Your Aligned Income strategy is just the beginning.</strong>{" "}
+                  The Back Pocket AI is your personal online business strategies, built to help you create content,
+                  refine your brand voice, and build a powerful online brand presence with an engaged and aligned
+                  community. Pick the plan that suits where you&rsquo;re at and let&rsquo;s get into it.
+                </p>
                 <button
                   onClick={() => {
                     setShowPricing(false);
@@ -1735,7 +1741,7 @@ function BrandBuildingContent() {
       {/* Top bar */}
       <div data-print-hide className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
         <span className="text-sm font-medium text-foreground">
-          {isEditMode ? "Edit Brand DNA" : "Brand Building Blueprint"}
+          {isEditMode ? "Edit Brand DNA" : "Aligned Income Ai"}
         </span>
         <div className="flex items-center gap-2">
           {isEditMode && (
@@ -1898,7 +1904,12 @@ function BrandBuildingContent() {
                 <X className="h-4 w-4" />
               </button>
               <h2 className="mb-2 text-lg font-bold text-foreground">Unlock Back Pocket AI</h2>
-              <p className="mb-4 text-sm text-muted-foreground">Choose a Consulting AI plan to unlock your marketing assistant.</p>
+              <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+                <strong className="text-foreground">Your Aligned Income strategy is just the beginning.</strong>{" "}
+                The Back Pocket AI is your personal online business strategies, built to help you create content,
+                refine your brand voice, and build a powerful online brand presence with an engaged and aligned
+                community. Pick the plan that suits where you&rsquo;re at and let&rsquo;s get into it.
+              </p>
               <button
                 onClick={() => {
                   setShowPricing(false);

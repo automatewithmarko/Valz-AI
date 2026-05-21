@@ -410,6 +410,9 @@ export type Database = {
           price_cents: number
           stripe_price_id: string | null
           stripe_product_id: string | null
+          stripe_yearly_price_id: string | null
+          tagline: string | null
+          yearly_price_cents: number | null
         }
         Insert: {
           brand_dna_profile_limit?: number | null
@@ -424,6 +427,9 @@ export type Database = {
           price_cents: number
           stripe_price_id?: string | null
           stripe_product_id?: string | null
+          stripe_yearly_price_id?: string | null
+          tagline?: string | null
+          yearly_price_cents?: number | null
         }
         Update: {
           brand_dna_profile_limit?: number | null
@@ -438,6 +444,9 @@ export type Database = {
           price_cents?: number
           stripe_price_id?: string | null
           stripe_product_id?: string | null
+          stripe_yearly_price_id?: string | null
+          tagline?: string | null
+          yearly_price_cents?: number | null
         }
         Relationships: []
       }

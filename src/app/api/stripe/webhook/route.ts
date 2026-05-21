@@ -101,8 +101,8 @@ async function findPlanByPriceId(supabase: SB, priceId: string) {
   const { data } = await supabase
     .from("plans")
     .select("id, name, monthly_credits")
-    .eq("stripe_price_id", priceId)
-    .single();
+    .or(`stripe_price_id.eq.${priceId},stripe_yearly_price_id.eq.${priceId}`)
+    .maybeSingle();
   return data;
 }
 

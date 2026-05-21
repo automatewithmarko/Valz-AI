@@ -27,11 +27,36 @@ import {
 // CTA + highlight metadata mirrors the sign-up onboarding (PricingScreen.tsx)
 // so the in-app subscription modal stays in sync with what new users see.
 // Plan name/price/credits/features all come from the `plans` table.
-const planMeta: Record<string, { cta: string; highlighted: boolean }> = {
-  starter: { cta: "Get Started", highlighted: false },
-  growth: { cta: "Upgrade to Growth", highlighted: true },
-  pro: { cta: "Go Pro", highlighted: false },
+const planMeta: Record<string, { cta: string; highlighted: boolean; description: string }> = {
+  starter: {
+    cta: "Get Started",
+    highlighted: false,
+    description: "Your entry point into having real strategy support whenever you need it.",
+  },
+  growth: {
+    cta: "Upgrade to Growth",
+    highlighted: true,
+    description: "For when you're ready to go deeper and need support that keeps up with you.",
+  },
+  pro: {
+    cta: "Go Pro",
+    highlighted: false,
+    description: "For the person who wants it all, fast, and without limits.",
+  },
 };
+
+type BillingInterval = "monthly" | "yearly";
+
+type PlanFeature = { text: string; hint?: string };
+
+function normalizeFeatures(raw: unknown): PlanFeature[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item) =>
+    typeof item === "string"
+      ? { text: item }
+      : { text: String((item as { text?: unknown }).text ?? ""), hint: (item as { hint?: string }).hint }
+  );
+}
 
 const CREDIT_PRICE = 0.10;
 const CREDIT_STEP = 50;
@@ -64,7 +89,20 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
       .finally(() => setLoadingPlans(false));
   }, [subscriptionOpen, plans.length, loadingPlans]);
 
-  const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
+  const formatPrice = (cents: number) => `A$${(cents / 100).toFixed(0)}`;
+  const formatPriceDecimal = (cents: number) => {
+    const dollars = cents / 100;
+    return dollars % 1 === 0 ? `A$${dollars.toFixed(0)}` : `A$${dollars.toFixed(2)}`;
+  };
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>("monthly");
+  const yearlyAvailable = plans.length > 0 && plans.every((p) => p.yearly_price_cents != null);
+  // Max dollar savings across plans, for the toggle headline. Falls back to 0
+  // when annual pricing isn't loaded yet — toggle hides in that case anyway.
+  const maxYearlySavings = yearlyAvailable
+    ? Math.max(
+        ...plans.map((p) => (p.price_cents * 12 - (p.yearly_price_cents ?? 0)) / 100)
+      )
+    : 0;
 
   // Settings form state
   const [editName, setEditName] = useState(user.name);
@@ -119,7 +157,9 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
 
       if (!hasActivePlan) {
         setCheckoutBusy(plan.id);
-        router.push(`/checkout/subscription?planId=${encodeURIComponent(plan.id)}`);
+        router.push(
+          `/checkout/subscription?planId=${encodeURIComponent(plan.id)}&interval=${billingInterval}`
+        );
         return;
       }
 
@@ -128,7 +168,7 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
       setPlanChangeError(null);
       setPlanChangeSuccess(null);
     },
-    [router]
+    [router, billingInterval]
   );
 
   const handleConfirmPlanChange = useCallback(async () => {
@@ -142,6 +182,7 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
         body: JSON.stringify({
           planId: planChange.plan.id,
           promoCode: planChangePromo.trim() || undefined,
+          interval: billingInterval,
         }),
       });
       const data = await res.json();
@@ -157,7 +198,7 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
     } finally {
       setPlanChangeBusy(false);
     }
-  }, [planChange, planChangePromo, refreshUser]);
+  }, [planChange, planChangePromo, billingInterval, refreshUser]);
 
   const handlePurchaseCredits = useCallback(() => {
     setCheckoutBusy("credits");
@@ -446,6 +487,43 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
           {checkoutError && (
             <p className="text-center text-xs text-red-500">{checkoutError}</p>
           )}
+          {yearlyAvailable && (
+            <div className="flex justify-center pt-1">
+              <div
+                role="tablist"
+                aria-label="Billing interval"
+                className="inline-flex items-center rounded-full border border-[#e0d6d0] bg-white/70 p-1 text-xs"
+              >
+                {(["monthly", "yearly"] as const).map((value) => {
+                  const active = billingInterval === value;
+                  return (
+                    <button
+                      key={value}
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => setBillingInterval(value)}
+                      className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 font-medium transition-all ${
+                        active
+                          ? "bg-[#06264e] text-white shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {value === "monthly" ? "Monthly" : "Annual"}
+                      {value === "yearly" && maxYearlySavings > 0 && (
+                        <span
+                          className={`rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums ${
+                            active ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-700"
+                          }`}
+                        >
+                          Save up to A${Math.round(maxYearlySavings)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           {loadingPlans ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-[#06264e]" />
@@ -453,8 +531,8 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               {plans.map((plan, idx) => {
-                const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false };
-                const features = (plan.features as string[]) ?? [];
+                const meta = planMeta[plan.name] ?? { cta: "Select", highlighted: false, description: "" };
+                const features = normalizeFeatures(plan.features);
                 // user.planName stores the plan's display_name, so match on that.
                 const currentPlanIdx = user.planName
                   ? plans.findIndex((p) => p.display_name === user.planName)
@@ -462,6 +540,16 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                 const isCurrent = currentPlanIdx >= 0 && idx === currentPlanIdx;
                 const isUpgrade = currentPlanIdx >= 0 && idx > currentPlanIdx;
                 const isDowngrade = currentPlanIdx >= 0 && idx < currentPlanIdx;
+
+                const isYearly = billingInterval === "yearly" && plan.yearly_price_cents != null;
+                const displayCents = isYearly ? plan.yearly_price_cents! : plan.price_cents;
+                const priceSuffix = isYearly ? "/year" : "/month";
+                const monthlyEquivalentCents = isYearly
+                  ? Math.round(plan.yearly_price_cents! / 12)
+                  : null;
+                const yearlySavingsCents = isYearly
+                  ? plan.price_cents * 12 - plan.yearly_price_cents!
+                  : 0;
 
                 let ctaText = meta.cta;
                 if (isCurrent) ctaText = "Current Plan";
@@ -489,10 +577,30 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                       </span>
                     ) : null}
                     <h3 className="text-sm font-semibold text-foreground">{plan.display_name}</h3>
+                    {meta.description && (
+                      <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                        {meta.description}
+                      </p>
+                    )}
                     <div className="mt-2 flex items-baseline gap-1">
-                      <span className="text-3xl font-bold text-foreground">{formatPrice(plan.price_cents)}</span>
-                      <span className="text-sm text-muted-foreground">/month</span>
+                      <span className="text-3xl font-bold tabular-nums text-foreground">
+                        {formatPrice(displayCents)}
+                      </span>
+                      <span className="text-sm text-muted-foreground">{priceSuffix}</span>
                     </div>
+                    {monthlyEquivalentCents != null && (
+                      <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                        ~{formatPriceDecimal(monthlyEquivalentCents)}/mo, billed yearly
+                      </p>
+                    )}
+                    {yearlySavingsCents > 0 && (
+                      <div className="mt-2 inline-flex w-fit items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                        <Check className="h-3 w-3" aria-hidden />
+                        <span className="tabular-nums">
+                          Save {formatPriceDecimal(yearlySavingsCents)} / year
+                        </span>
+                      </div>
+                    )}
                     {plan.monthly_credits != null && (
                       <div className="mt-3 rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] px-3 py-2">
                         <div className="flex items-baseline gap-1.5">
@@ -508,14 +616,27 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                         </p>
                       </div>
                     )}
-                    <ul className="mt-4 flex-1 space-y-2">
+                    <ul className="mt-4 space-y-2">
                       {features.map((feature) => (
-                        <li key={feature} className="flex items-start gap-2 text-xs text-foreground">
+                        <li key={feature.text} className="flex items-start gap-2 text-xs text-foreground">
                           <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
-                          {feature}
+                          <div className="min-w-0">
+                            <span>{feature.text}</span>
+                            {feature.hint && (
+                              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                                {feature.hint}
+                              </p>
+                            )}
+                          </div>
                         </li>
                       ))}
                     </ul>
+                    {plan.tagline && (
+                      <p className="mt-3 text-[11px] italic leading-relaxed text-muted-foreground">
+                        {plan.tagline}
+                      </p>
+                    )}
+                    <div className="flex-1" />
                     <button
                       disabled={isCurrent || !!checkoutBusy}
                       onClick={() => handlePlanCta(plan, isCurrent, !!user.planName, isUpgrade)}
@@ -583,14 +704,23 @@ export function SidebarProfile({ user }: SidebarProfileProps) {
                 <div className="rounded-lg border border-[#06264e]/15 bg-[#06264e]/[0.04] p-3">
                   <div className="flex items-baseline justify-between">
                     <span className="text-sm font-medium text-foreground">{planChange?.plan.display_name}</span>
-                    <span className="text-lg font-bold text-[#06264e]">
-                      {planChange ? formatPrice(planChange.plan.price_cents) : ""}
-                      <span className="text-xs font-normal text-muted-foreground">/mo</span>
+                    <span className="text-lg font-bold text-[#06264e] tabular-nums">
+                      {planChange
+                        ? formatPrice(
+                            billingInterval === "yearly" && planChange.plan.yearly_price_cents != null
+                              ? planChange.plan.yearly_price_cents
+                              : planChange.plan.price_cents
+                          )
+                        : ""}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {billingInterval === "yearly" ? "/yr" : "/mo"}
+                      </span>
                     </span>
                   </div>
                   {planChange?.plan.monthly_credits != null && (
                     <p className="mt-1 text-xs text-muted-foreground">
                       {planChange.plan.monthly_credits.toLocaleString()} credits / month
+                      {billingInterval === "yearly" && " · billed yearly"}
                     </p>
                   )}
                 </div>

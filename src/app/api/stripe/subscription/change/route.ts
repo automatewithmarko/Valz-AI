@@ -29,9 +29,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const body = (await req.json()) as { planId?: string; promoCode?: string };
+  const body = (await req.json()) as {
+    planId?: string;
+    promoCode?: string;
+    interval?: "monthly" | "yearly";
+  };
   const planId = body.planId;
   const promoCode = body.promoCode?.trim();
+  const billingInterval: "monthly" | "yearly" =
+    body.interval === "yearly" ? "yearly" : "monthly";
   if (!planId) {
     return NextResponse.json({ error: "planId required" }, { status: 400 });
   }
@@ -64,19 +70,37 @@ export async function POST(req: NextRequest) {
 
   const { data: targetPlan } = await supabase
     .from("plans")
-    .select("id, name, price_cents, stripe_price_id, display_name")
+    .select(
+      "id, name, price_cents, stripe_price_id, stripe_yearly_price_id, yearly_price_cents, display_name"
+    )
     .eq("id", planId)
     .single();
-  if (!targetPlan?.stripe_price_id) {
+  const targetPriceId =
+    billingInterval === "yearly"
+      ? targetPlan?.stripe_yearly_price_id
+      : targetPlan?.stripe_price_id;
+  const targetCents =
+    billingInterval === "yearly"
+      ? targetPlan?.yearly_price_cents ?? 0
+      : targetPlan?.price_cents ?? 0;
+  if (!targetPlan || !targetPriceId) {
     return NextResponse.json(
-      { error: "Target plan not found or not configured for Stripe." },
+      {
+        error: `Target plan not found or not configured for ${billingInterval} Stripe checkout.`,
+      },
       { status: 404 }
     );
   }
 
+  // For upgrade/downgrade detection, normalize both sides to a per-month rate
+  // so swapping monthly↔yearly on the same plan is still classified correctly
+  // (yearly is cheaper per-month, so going yearly looks like a "downgrade" in
+  // raw cents — normalize to avoid that).
   const currentPriceCents =
     (currentSub.plans as { price_cents: number } | null)?.price_cents ?? 0;
-  const isUpgrade = targetPlan.price_cents > currentPriceCents;
+  const targetMonthlyEquivalent =
+    billingInterval === "yearly" ? targetCents / 12 : targetCents;
+  const isUpgrade = targetMonthlyEquivalent > currentPriceCents;
 
   const stripe = getStripe();
 
@@ -111,7 +135,7 @@ export async function POST(req: NextRequest) {
     const updated = await stripe.subscriptions.update(
       currentSub.stripe_subscription_id,
       {
-        items: [{ id: currentItem.id, price: targetPlan.stripe_price_id }],
+        items: [{ id: currentItem.id, price: targetPriceId }],
         proration_behavior: "always_invoice",
         ...(promotionCodeId
           ? { discounts: [{ promotion_code: promotionCodeId }] }
@@ -149,7 +173,7 @@ export async function POST(req: NextRequest) {
         end_date: existingPhase.end_date,
       },
       {
-        items: [{ price: targetPlan.stripe_price_id, quantity: 1 }],
+        items: [{ price: targetPriceId, quantity: 1 }],
         ...(promotionCodeId
           ? { discounts: [{ promotion_code: promotionCodeId }] }
           : {}),

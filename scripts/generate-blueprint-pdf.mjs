@@ -1,0 +1,257 @@
+// Generate the final PDF from a saved blueprint markdown.
+//
+// Mirrors the production rendering logic in src/lib/brand-pdf.ts so the
+// output matches what end users will actually receive. The only changes
+// from the browser version: logo is loaded from disk instead of fetch,
+// and the file is written via fs instead of triggering a browser download.
+
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { jsPDF } from "jspdf";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(__dirname, "..");
+
+const COMPLETION_MARKER = "===BRAND_DNA_COMPLETE===";
+const EDIT_COMPLETION_MARKER = "===BRAND_DNA_EDIT_COMPLETE===";
+
+async function loadLogoAsDataURL() {
+  const buf = await readFile(resolve(ROOT, "public/logo.png"));
+  return `data:image/png;base64,${buf.toString("base64")}`;
+}
+
+async function renderBlueprint(content, outputPath) {
+  let clean = content
+    .replace(COMPLETION_MARKER, "")
+    .replace(EDIT_COMPLETION_MARKER, "")
+    .replace(/===SUMMARY_START===[\s\S]*?===SUMMARY_END===/g, "")
+    .trim();
+
+  const firstHeadingIdx = clean.indexOf("\n# ");
+  if (firstHeadingIdx > 0) {
+    clean = clean.substring(firstHeadingIdx + 1).trim();
+  } else if (clean.startsWith("# ")) {
+    // already starts with heading
+  } else {
+    const altIdx = clean.indexOf("# YOUR ALIGNED INCOME BLUEPRINT");
+    if (altIdx > 0) clean = clean.substring(altIdx).trim();
+  }
+
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const marginLeft = 20;
+  const contentWidth = pageWidth - marginLeft - 20;
+  let y = 0;
+
+  const bgColor = [252, 249, 245];
+  function addBackground() {
+    pdf.setFillColor(...bgColor);
+    pdf.rect(0, 0, pageWidth, pageHeight, "F");
+  }
+  function checkPage(needed) {
+    if (y + needed > pageHeight - 20) {
+      pdf.addPage();
+      addBackground();
+      y = 25;
+    }
+  }
+
+  addBackground();
+
+  try {
+    const logoData = await loadLogoAsDataURL();
+    const logoW = 50;
+    const logoH = 50 * (441 / 750);
+    const logoX = (pageWidth - logoW) / 2;
+    pdf.addImage(logoData, "PNG", logoX, 20, logoW, logoH);
+    y = 20 + logoH + 8;
+  } catch (err) {
+    console.warn("Logo load failed:", err.message);
+    y = 25;
+  }
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(24);
+  pdf.setTextColor(6, 38, 78);
+  const titleText = "Your Aligned Income Blueprint";
+  const titleWidth = pdf.getTextWidth(titleText);
+  pdf.text(titleText, (pageWidth - titleWidth) / 2, y);
+  y += 6;
+
+  pdf.setDrawColor(192, 137, 103);
+  pdf.setLineWidth(0.5);
+  pdf.line(pageWidth / 2 - 30, y, pageWidth / 2 + 30, y);
+  y += 15;
+
+  function renderRichLine(text, x, fontSize, maxWidth) {
+    pdf.setFontSize(fontSize);
+    const lineH = fontSize * 0.5 + 1;
+    const parts = text.split(/(\*\*.*?\*\*)/g);
+    const segments = [];
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.startsWith("**") && part.endsWith("**")) {
+        segments.push({ text: part.slice(2, -2), bold: true });
+      } else {
+        segments.push({ text: part.replace(/\*(.*?)\*/g, "$1"), bold: false });
+      }
+    }
+    const words = [];
+    for (const seg of segments) {
+      const segWords = seg.text.split(/( +)/);
+      for (const w of segWords) {
+        if (w) words.push({ word: w, bold: seg.bold });
+      }
+    }
+    let lineWords = [];
+    let lineWidth = 0;
+    const flushLine = () => {
+      if (lineWords.length === 0) return;
+      checkPage(lineH);
+      let lx = x;
+      for (const w of lineWords) {
+        pdf.setFont("helvetica", w.bold ? "bold" : "normal");
+        pdf.setFontSize(fontSize);
+        pdf.text(w.word, lx, y);
+        lx += pdf.getTextWidth(w.word);
+      }
+      y += lineH;
+      lineWords = [];
+      lineWidth = 0;
+    };
+    for (const w of words) {
+      pdf.setFont("helvetica", w.bold ? "bold" : "normal");
+      pdf.setFontSize(fontSize);
+      const wWidth = pdf.getTextWidth(w.word);
+      if (lineWidth + wWidth > maxWidth && lineWords.length > 0) {
+        flushLine();
+      }
+      lineWords.push(w);
+      lineWidth += wWidth;
+    }
+    flushLine();
+    pdf.setFont("helvetica", "normal");
+  }
+
+  const lines = clean.split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("# ")) {
+      checkPage(18);
+      y += 6;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(18);
+      pdf.setTextColor(6, 38, 78);
+      const headingText = trimmed.slice(2).replace(/\*\*(.*?)\*\*/g, "$1");
+      const headingLines = pdf.splitTextToSize(headingText, contentWidth);
+      for (const hl of headingLines) {
+        checkPage(10);
+        pdf.text(hl, marginLeft, y);
+        y += 9;
+      }
+      pdf.setDrawColor(192, 137, 103);
+      pdf.setLineWidth(0.3);
+      pdf.line(marginLeft, y - 3, marginLeft + contentWidth, y - 3);
+      y += 4;
+      continue;
+    }
+    if (trimmed.startsWith("## ")) {
+      checkPage(14);
+      y += 5;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.setTextColor(6, 38, 78);
+      const headingText = trimmed.slice(3).replace(/\*\*(.*?)\*\*/g, "$1");
+      const headingLines = pdf.splitTextToSize(headingText, contentWidth);
+      for (const hl of headingLines) {
+        checkPage(8);
+        pdf.text(hl, marginLeft, y);
+        y += 7;
+      }
+      y += 2;
+      continue;
+    }
+    if (trimmed.startsWith("### ")) {
+      checkPage(12);
+      y += 3;
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(12);
+      pdf.setTextColor(6, 38, 78);
+      const headingText = trimmed.slice(4).replace(/\*\*(.*?)\*\*/g, "$1");
+      const headingLines = pdf.splitTextToSize(headingText, contentWidth);
+      for (const hl of headingLines) {
+        checkPage(7);
+        pdf.text(hl, marginLeft, y);
+        y += 6;
+      }
+      y += 1;
+      continue;
+    }
+    if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
+      checkPage(8);
+      y += 3;
+      pdf.setDrawColor(200, 200, 200);
+      pdf.setLineWidth(0.2);
+      pdf.line(marginLeft, y, marginLeft + contentWidth, y);
+      y += 5;
+      continue;
+    }
+    if (!trimmed) {
+      y += 3;
+      continue;
+    }
+    if (trimmed.startsWith("- ") || trimmed.startsWith("* ") || trimmed.startsWith("• ")) {
+      const bulletText = trimmed.slice(2);
+      pdf.setFontSize(10);
+      pdf.setTextColor(40, 40, 40);
+      checkPage(6);
+      pdf.setTextColor(192, 137, 103);
+      pdf.text("•", marginLeft + 1, y);
+      pdf.setTextColor(40, 40, 40);
+      renderRichLine(bulletText, marginLeft + 7, 10, contentWidth - 8);
+      y += 1;
+      continue;
+    }
+    const numberedMatch = trimmed.match(/^(\d+)\.\s+(.*)/);
+    if (numberedMatch) {
+      const num = numberedMatch[1];
+      const text = numberedMatch[2];
+      pdf.setFontSize(10);
+      pdf.setTextColor(40, 40, 40);
+      checkPage(6);
+      pdf.setFont("helvetica", "bold");
+      pdf.setTextColor(192, 137, 103);
+      pdf.text(`${num}.`, marginLeft + 1, y);
+      pdf.setFont("helvetica", "normal");
+      pdf.setTextColor(40, 40, 40);
+      renderRichLine(text, marginLeft + 10, 10, contentWidth - 10);
+      y += 1;
+      continue;
+    }
+    pdf.setTextColor(40, 40, 40);
+    renderRichLine(trimmed, marginLeft, 10, contentWidth);
+    y += 2;
+  }
+
+  // jsPDF's Node mode: output() returns a Buffer with arraybuffer encoding.
+  const buf = Buffer.from(pdf.output("arraybuffer"));
+  await mkdir(dirname(outputPath), { recursive: true });
+  await writeFile(outputPath, buf);
+  console.log(`Wrote ${outputPath} (${(buf.length / 1024).toFixed(1)} KB, ${pdf.internal.getNumberOfPages()} pages)`);
+}
+
+const sourceArg = process.argv[2] ?? ".test-outputs/blueprint-run-1.md";
+const targetArg = process.argv[3] ?? ".test-outputs/Your_Aligned_Income_Blueprint.pdf";
+
+(async () => {
+  const sourcePath = resolve(ROOT, sourceArg);
+  const targetPath = resolve(ROOT, targetArg);
+  const content = await readFile(sourcePath, "utf8");
+  console.log(`Source: ${sourcePath} (${content.length.toLocaleString()} chars)`);
+  await renderBlueprint(content, targetPath);
+})().catch((e) => {
+  console.error("FAILED:", e.message);
+  process.exit(1);
+});

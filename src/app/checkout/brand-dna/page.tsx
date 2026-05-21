@@ -44,7 +44,7 @@ export default function BrandDnaCheckoutPage() {
           productIcon={Sparkles}
           productName="Aligned Income Blueprint"
           productMeta="One-time payment · lifetime access"
-          amountLabel={`$${BRAND_DNA_PRICE_DOLLARS}`}
+          amountLabel={`A$${BRAND_DNA_PRICE_DOLLARS}`}
           features={[
             "Personalised, conversational discovery",
             "Aligned with your Human Design",
