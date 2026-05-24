@@ -292,8 +292,8 @@ When you fill a Plug-and-Play template's blanks for a carousel, story sequence, 
 If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRINT" section above), then the consultant rule still applies — ask for niche, audience, offer specifics before producing the deliverable.`;
 
 
-// 1 credit = 1,000 characters of chat content (input + output combined).
-const CHARS_PER_CREDIT = 1000;
+// 1 credit = 1,600 characters of chat content (input + output combined).
+const CHARS_PER_CREDIT = 1600;
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -482,7 +482,7 @@ ${docsBlock}`;
     if (deducted) return;
     deducted = true;
     const totalChars = inputChars + outputChars;
-    const creditsToDeduct = Math.max(1, Math.ceil(totalChars / CHARS_PER_CREDIT));
+    const creditsToDeduct = totalChars / CHARS_PER_CREDIT;
     try {
       await supabase.rpc("deduct_credits", {
         user_uuid: user.id,

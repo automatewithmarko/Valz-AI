@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       {
         quantity: 1,
         price_data: {
-          currency: "usd",
+          currency: "aud",
           unit_amount: totalCents,
           product: STRIPE_TOPUP_PRODUCT_ID,
         },

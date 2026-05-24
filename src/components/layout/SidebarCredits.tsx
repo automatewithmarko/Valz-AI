@@ -21,7 +21,7 @@ export function SidebarCredits({ user }: SidebarCreditsProps) {
       </div>
       <div className="flex items-baseline gap-2">
         <p className="text-2xl font-bold text-[#ad0201] tabular-nums">
-          {user.credits.toLocaleString()}
+          {user.credits.toFixed(1)}
         </p>
         {user.monthlyCredits != null && (
           <span className="text-xs text-muted-foreground tabular-nums">

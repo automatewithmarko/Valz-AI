@@ -11,8 +11,8 @@ export function getStripe(): Stripe {
   return _client;
 }
 
-export const STRIPE_TOPUP_PRODUCT_ID = "prod_UQgrf8wQvxDBo8";
-export const CREDIT_UNIT_AMOUNT_CENTS = 10; // $0.10 per credit
+export const STRIPE_TOPUP_PRODUCT_ID = "prod_UZtEvWXZpCUto8";
+export const CREDIT_UNIT_AMOUNT_CENTS = 1; // A$0.01 per credit (matches plan rate)
 
 /**
  * Shared secret for the SECURITY DEFINER stripe_* RPCs. The webhook +

@@ -26,7 +26,7 @@ const PACKS = [
   icon: typeof Sparkles;
 }[];
 
-const CREDIT_PRICE_CENTS = 10;
+const CREDIT_PRICE_CENTS = 1; // A$0.01 per credit
 
 export function PaywallModal({ open, onOpenChange }: PaywallModalProps) {
   const router = useRouter();
@@ -51,7 +51,7 @@ export function PaywallModal({ open, onOpenChange }: PaywallModalProps) {
         <div className="mt-2 space-y-2">
           {PACKS.map((pack) => {
             const Icon = pack.icon;
-            const dollars = ((pack.credits * CREDIT_PRICE_CENTS) / 100).toFixed(0);
+            const dollars = ((pack.credits * CREDIT_PRICE_CENTS) / 100).toFixed(2);
             return (
               <button
                 key={pack.credits}
@@ -84,7 +84,7 @@ export function PaywallModal({ open, onOpenChange }: PaywallModalProps) {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-base font-bold tabular-nums text-[#06264e]">
-                    ${dollars}
+                    A${dollars}
                   </span>
                   <ArrowRight
                     className="h-3.5 w-3.5 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-[#06264e]"

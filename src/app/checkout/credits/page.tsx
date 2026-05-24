@@ -8,7 +8,7 @@ import { CheckoutShell } from "@/components/checkout/CheckoutShell";
 import { OrderSummaryCard } from "@/components/checkout/OrderSummaryCard";
 import { EmbeddedCheckoutPanel } from "@/components/checkout/EmbeddedCheckoutPanel";
 
-const CREDIT_PRICE_CENTS = 10;
+const CREDIT_PRICE_CENTS = 1; // A$0.01 per credit
 const MIN_CREDITS = 50;
 const MAX_CREDITS = 5000;
 const CREDITS_STEP = 50;
@@ -80,8 +80,8 @@ function CreditsCheckoutInner() {
         <OrderSummaryCard
           productIcon={Zap}
           productName={`${credits.toLocaleString()} credits`}
-          productMeta={`~${(credits * 1000).toLocaleString()} characters of AI chat`}
-          amountLabel={`$${totalDollars}`}
+          productMeta={`~${(credits * 1600).toLocaleString()} characters of AI chat`}
+          amountLabel={`A$${totalDollars}`}
           features={[
             "Credits never expire",
             "Use them across every chat and tool",

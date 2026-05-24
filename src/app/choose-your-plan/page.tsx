@@ -220,7 +220,7 @@ export default function ChooseYourPlanPage() {
                     </span>
                   </div>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    ~{(plan.monthly_credits * 1000).toLocaleString()} characters of AI chat
+                    ~{(plan.monthly_credits * 1600).toLocaleString()} characters of AI chat
                   </p>
                 </div>
               )}
