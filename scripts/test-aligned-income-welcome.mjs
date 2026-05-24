@@ -44,29 +44,32 @@ async function loadSystemPrompt() {
   return src.slice(after, end);
 }
 
-async function call(messages, { stream = false } = {}) {
+// Use the Anthropic SDK against the mentor gateway, mirroring the live
+// /api/brand-chat route exactly. Pass the system prompt as the first
+// "system" entry inside `messages` — the helper splits it back out as the
+// SDK's top-level system field.
+const { default: Anthropic } = await import("@anthropic-ai/sdk");
+async function call(messages, { model = "claude-opus-4-6", maxTokens = 2048 } = {}) {
   const apiKey = process.env.MENTOR_API_KEY;
   const apiUrl = process.env.MENTOR_API_URL;
   if (!apiKey || !apiUrl) throw new Error("MENTOR_API_KEY / MENTOR_API_URL missing");
+  const baseURL = apiUrl.replace(/\/v1\/?$/, "");
+  const client = new Anthropic({ apiKey, baseURL });
 
-  const res = await fetch(`${apiUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "xai/grok-3-fast",
-      messages,
-      stream,
-      max_tokens: 2048,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  let system = "";
+  const turns = [];
+  for (const m of messages) {
+    if (m.role === "system") system = m.content;
+    else turns.push({ role: m.role, content: m.content });
   }
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
+
+  const res = await client.messages.create({
+    model,
+    max_tokens: maxTokens,
+    system,
+    messages: turns,
+  });
+  return res.content[0]?.type === "text" ? res.content[0].text : "";
 }
 
 function divider(label) {

@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Copy, Download, Eye, EyeOff, Home, Loader2, LogOut, Mic, MicOff, Printer, Save, User, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { assistantProseClass } from "@/components/chat/prose";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { downloadBrandDNA } from "@/lib/brand-pdf";
@@ -193,13 +194,33 @@ function BrandMessage({
     );
   }
 
-  // Detect blueprint messages
-  const isBlueprintMessage = !isUser && message.content.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+  // Detect blueprint messages.
+  //
+  // Two shapes we accept:
+  //  1. The AI emits a single consolidated final message containing both the
+  //     "# YOUR ALIGNED INCOME BLUEPRINT" header and the completion marker.
+  //  2. The AI emits the completion marker on its own (e.g. tagged onto the
+  //     end of the Step 15 review message). In this case the page's
+  //     completion-detection effect runs the fallback combiner and writes
+  //     the stitched blueprint into `blueprintContent`. We still want this
+  //     message to render the success card with download.
   const hasCompletionMarker =
     message.content.includes(COMPLETION_MARKER) ||
     message.content.includes(EDIT_COMPLETION_MARKER);
-  const isBlueprintComplete = isBlueprintMessage && (hasCompletionMarker || isComplete);
-  const isBlueprintStreaming = isBlueprintMessage && !isBlueprintComplete;
+  const hasBlueprintHeader =
+    !isUser && message.content.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+  const isMarkerCarrier = !isUser && hasCompletionMarker;
+  const isBlueprintMessage = hasBlueprintHeader || isMarkerCarrier;
+  // A blueprint is only "complete" when the model has actually emitted the
+  // completion marker. We used to also flip to complete whenever generation
+  // stopped (the `isComplete` fallback), but that meant a truncated/orphaned
+  // blueprint (model hit max_tokens without finishing) would render the
+  // success card with a Download button over incomplete content — and the
+  // input would be hidden so the user couldn't recover. Now an unfinished
+  // blueprint stays in the streaming state, the input stays visible, and the
+  // user can send "continue exactly where you left off" to resume.
+  const isBlueprintComplete = isBlueprintMessage && hasCompletionMarker;
+  const isBlueprintStreaming = hasBlueprintHeader && !isBlueprintComplete;
 
   // Blueprint is being generated — show a loading card
   if (isBlueprintStreaming) {
@@ -341,7 +362,7 @@ function BrandMessage({
             <Image src="/AgentPhoto.png" alt="Valzacchi.ai" width={28} height={28} className="h-7 w-7 object-cover" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="rounded-2xl bg-[#06264e] px-4 py-3 text-white prose prose-sm prose-invert max-w-none prose-headings:font-semibold prose-headings:text-white prose-p:leading-relaxed prose-p:text-white prose-strong:text-white prose-table:text-sm prose-th:py-2 prose-th:px-3 prose-th:text-white prose-td:py-2 prose-td:px-3 prose-td:text-white/90 prose-blockquote:border-l-white/40 prose-blockquote:not-italic prose-blockquote:text-white/90 prose-li:text-white/90 prose-a:text-blue-300 prose-code:text-blue-200 prose-hr:border-white/20">
+            <div className={`rounded-2xl bg-[#06264e] px-5 py-4 ${assistantProseClass}`}>
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {displayContent}
               </ReactMarkdown>
@@ -1103,26 +1124,68 @@ function BrandBuildingContent() {
     })();
   }, [messages, isEditMode, isGenerating, hdCalculating, brandDnaId, userId, supabase]);
 
-  // Detect build-mode completion marker + save to DB
+  // Detect build-mode completion marker + save to DB.
+  //
+  // Happy path: the AI emits ONE consolidated final message that contains
+  // both `# YOUR ALIGNED INCOME BLUEPRINT` and `===BRAND_DNA_COMPLETE===`.
+  //
+  // Fallback path: section-by-section flow where the AI only emits the
+  // marker at the end of Step 15's review message (no consolidated final).
+  // We reconstruct the full blueprint by stitching together the preceding
+  // assistant messages whose content opens a step section. This makes the
+  // download/success card trigger reliably regardless of which path the AI
+  // chose, and ensures the DB stores the full blueprint, not just the tail.
   useEffect(() => {
     if (isEditMode || isComplete || !brandDnaId || !userId) return;
     const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-    if (lastAssistant?.content.includes(COMPLETION_MARKER)) {
-      setIsComplete(true);
+    if (!lastAssistant?.content.includes(COMPLETION_MARKER)) return;
 
-      const blueprintContent = lastAssistant.content;
-      setFullBlueprintContent(blueprintContent);
-      try {
-        localStorage.setItem("brandDNAContent", blueprintContent);
-      } catch {
-        // localStorage may be unavailable
+    setIsComplete(true);
+
+    let blueprintContent = lastAssistant.content;
+    const hasHeader = blueprintContent.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+    if (!hasHeader) {
+      // Fallback: the marker landed in a continuation message that doesn't
+      // carry the "# YOUR ALIGNED INCOME BLUEPRINT" header itself. This
+      // happens when the in-memory accumulation is lost (e.g. page reload
+      // mid-blueprint) so the continuation gets saved as its own DB row.
+      // Reconstruct by finding the first assistant message that DID open the
+      // blueprint and concatenating every assistant message from there
+      // through the one that emitted the marker.
+      //
+      // We intentionally do NOT regex for "Step N" / "Section N" headers
+      // because the blueprint body uses both, the interview prompts also
+      // use "Section N", and a single blueprint message can contain many
+      // step headings in it — any header-counting approach mismaps content.
+      // Position-based concatenation is robust.
+      const assistantMessages = messages.filter((m) => m.role === "assistant");
+      const lastIdx = assistantMessages.indexOf(lastAssistant);
+      const headerIdx = assistantMessages.findIndex((m) =>
+        m.content.includes("# YOUR ALIGNED INCOME BLUEPRINT")
+      );
+      if (headerIdx !== -1 && headerIdx <= lastIdx) {
+        const parts = assistantMessages
+          .slice(headerIdx, lastIdx + 1)
+          .map((m) => m.content.replace(COMPLETION_MARKER, "").trim())
+          .filter((s) => s.length > 0);
+        blueprintContent = parts.join("\n\n") + "\n\n" + COMPLETION_MARKER;
       }
-      updateBrandDNA(supabase, brandDnaId, {
-        status: "active",
-        blueprint_content: blueprintContent,
-        brand_name: authUser?.name || "",
-      }).then(() => refreshUser()).catch((err) => console.error("Failed to save brand DNA:", err));
+      // If headerIdx === -1 we leave blueprintContent as lastAssistant.content;
+      // the marker exists but no blueprint was ever opened, which is a
+      // degenerate state we don't try to invent content for.
     }
+
+    setFullBlueprintContent(blueprintContent);
+    try {
+      localStorage.setItem("brandDNAContent", blueprintContent);
+    } catch {
+      // localStorage may be unavailable
+    }
+    updateBrandDNA(supabase, brandDnaId, {
+      status: "active",
+      blueprint_content: blueprintContent,
+      brand_name: authUser?.name || "",
+    }).then(() => refreshUser()).catch((err) => console.error("Failed to save brand DNA:", err));
   }, [messages, isComplete, brandDnaId, supabase, userId, authUser, refreshUser, isEditMode]);
 
   // Detect edit-mode completion marker — do NOT auto-save, wait for user to click Save.
@@ -1227,7 +1290,7 @@ function BrandBuildingContent() {
 
     const currentMessages = [...messages];
     const apiMessages = currentMessages.map((m) => ({ role: m.role, content: m.content }));
-    const MAX_CONTINUATIONS = 3;
+    const MAX_CONTINUATIONS = 8;
 
     (async () => {
       try {
@@ -1244,8 +1307,15 @@ function BrandBuildingContent() {
         );
         accumulated = initialContent;
 
-        // Auto-continue if blueprint was started but not completed (truncated output)
-        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+        // Auto-continue if blueprint was started but not completed (truncated
+        // output). The header lives in the FIRST blueprint message; subsequent
+        // "continue" turns won't repeat it, so we also check whether any prior
+        // assistant message in this conversation already opened the blueprint.
+        const priorAssistantHasHeader = apiMessages.some(
+          (m) => m.role === "assistant" && m.content.includes("# YOUR ALIGNED INCOME BLUEPRINT")
+        );
+        const isBlueprintResponse =
+          accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT") || priorAssistantHasHeader;
         if (isBlueprintResponse && !accumulated.includes(COMPLETION_MARKER)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [
@@ -1359,7 +1429,7 @@ function BrandBuildingContent() {
         : undefined;
 
       const completionMarker = isEditMode ? EDIT_COMPLETION_MARKER : COMPLETION_MARKER;
-      const MAX_CONTINUATIONS = 5;
+      const MAX_CONTINUATIONS = 8;
 
       try {
         const abort = new AbortController();
@@ -1380,8 +1450,15 @@ function BrandBuildingContent() {
         );
         accumulated = initialContent;
 
-        // Auto-continue if blueprint was started but not completed (truncated output)
-        const isBlueprintResponse = accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT");
+        // Auto-continue if blueprint was started but not completed. The
+        // header lives in the FIRST blueprint message; subsequent "continue"
+        // turns won't repeat it, so we also check whether any prior assistant
+        // message in this conversation already opened the blueprint.
+        const priorAssistantHasHeader = apiMessages.some(
+          (m) => m.role === "assistant" && m.content.includes("# YOUR ALIGNED INCOME BLUEPRINT")
+        );
+        const isBlueprintResponse =
+          accumulated.includes("# YOUR ALIGNED INCOME BLUEPRINT") || priorAssistantHasHeader;
         if (isBlueprintResponse && !accumulated.includes(completionMarker)) {
           for (let attempt = 0; attempt < MAX_CONTINUATIONS; attempt++) {
             const continuationMessages = [

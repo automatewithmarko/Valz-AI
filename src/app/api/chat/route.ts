@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { buildKbContext } from "@/lib/kb-retrieval";
 import {
@@ -441,36 +442,40 @@ ${docsBlock}`;
     systemPrompt.length +
     messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
 
-  const upstream = await fetch(`${apiUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "xai/grok-4-0709",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...messages.map((m) => ({ role: m.role, content: m.content })),
-      ],
-      stream: true,
-    }),
-  });
+  // The mentor gateway hosts Anthropic's native Messages API at
+  // /v1/messages — NOT at /v1/chat/completions. The Anthropic SDK appends
+  // /v1/messages itself, so the baseURL must end at /api.
+  const baseURL = apiUrl.replace(/\/v1\/?$/, "");
+  const client = new Anthropic({ apiKey, baseURL });
 
-  if (!upstream.ok || !upstream.body) {
-    const error = await upstream.text();
+  // Anthropic requires the system prompt as a top-level field and the
+  // messages array to contain only user/assistant turns.
+  const anthroMessages = messages
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  let stream;
+  try {
+    stream = await client.messages.stream({
+      model: "claude-sonnet-4-6",
+      max_tokens: 4096,
+      system: systemPrompt,
+      messages: anthroMessages,
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
     return new Response(JSON.stringify({ error }), {
-      status: upstream.status,
+      status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  // Tee the SSE stream so we can forward it to the client *and* count
-  // how many characters of assistant output flow through, in order to
-  // deduct credits accurately when the stream ends.
-  const decoder = new TextDecoder();
+  // Translate Anthropic events to OpenAI-style SSE so the existing client
+  // (and credit-deduction code) keeps working unchanged. We emit
+  //   data: {"choices":[{"delta":{"content":"<chunk>"}}]}\n\n
+  // for each text delta and a terminal `data: [DONE]\n\n`.
+  const encoder = new TextEncoder();
   let outputChars = 0;
-  let sseBuffer = "";
   let deducted = false;
 
   const deductCredits = async () => {
@@ -488,30 +493,38 @@ ${docsBlock}`;
     }
   };
 
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      // Parse SSE frames to accumulate assistant output length
-      sseBuffer += decoder.decode(chunk, { stream: true });
-      const lines = sseBuffer.split("\n");
-      sseBuffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data: ")) continue;
-        const data = trimmed.slice(6);
-        if (data === "[DONE]") continue;
-        try {
-          const parsed = JSON.parse(data);
-          const delta: string | undefined = parsed?.choices?.[0]?.delta?.content;
-          if (typeof delta === "string") outputChars += delta.length;
-        } catch {
-          // ignore malformed frames
+  const sseBody = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of stream) {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            const text = event.delta.text;
+            if (text) {
+              outputChars += text.length;
+              const frame = `data: ${JSON.stringify({
+                choices: [{ delta: { content: text } }],
+              })}\n\n`;
+              controller.enqueue(encoder.encode(frame));
+            }
+          } else if (event.type === "message_stop") {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          }
         }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
+        );
+      } finally {
+        await deductCredits();
+        controller.close();
       }
-      // Forward the chunk as-is to the client
-      controller.enqueue(chunk);
     },
-    async flush() {
-      await deductCredits();
+    cancel() {
+      void deductCredits();
     },
   });
 
@@ -520,7 +533,7 @@ ${docsBlock}`;
     void deductCredits();
   });
 
-  return new Response(upstream.body.pipeThrough(transform), {
+  return new Response(sseBody, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",

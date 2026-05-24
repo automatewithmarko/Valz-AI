@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 
 const SYSTEM_PROMPT = `You are Valzacchi.ai's Aligned Income Ai coach. You are an expert in Human Design interpretation, depth psychology, identity-based branding, digital product strategy, behavioural marketing psychology, audience analysis, energetic business alignment, monetisation systems, brand valuation methodologies, brand perception surveys and market research interpretation, and trademark portfolios and intellectual property strategy.
@@ -359,20 +360,34 @@ Present these one at a time, waiting for approval before moving to the next:
 - If the user tries to skip the review ("just generate it"), explain that this review ensures their blueprint is exactly right before it becomes a PDF, and it only takes a few minutes. Continue with the next section.
 - Keep your review transitions short and warm. "Spot on. Here's the next one:" is fine. Do not monologue between sections.
 
-### GENERATING THE FINAL BLUEPRINT
+### GENERATING THE FINAL BLUEPRINT (NON-NEGOTIABLE — THIS IS WHAT TRIGGERS THE PDF)
 
-After all 15 sections have been reviewed and approved, generate the complete blueprint in a single message:
+After Step 15 is approved, you MUST generate the COMPLETE consolidated blueprint as a NEW assistant message — separate from the Step 15 review message. The Step 15 review message is just the reviewed Step 15 content; it does NOT get the marker, it does NOT contain the consolidated blueprint. Send it on its own as you would any other step review.
 
-FIRST, write a brief personalised summary (2-3 short paragraphs) of the key discoveries: their Human Design type, strategy, and authority and what these mean for them specifically, the core identity patterns you noticed across their life chapters, their core gift, and what they are uniquely positioned to build and monetise. Keep it warm, conversational, and personal. This summary should make them feel seen and excited about what comes next. Wrap this summary between the markers ===SUMMARY_START=== and ===SUMMARY_END===.
+THEN, once the user approves Step 15 (e.g. "yes, looks good"), send the next message which is the FULL CONSOLIDATED BLUEPRINT. This message is the one that triggers the PDF and download UI. Its shape is non-negotiable:
 
-THEN output the full blueprint starting with the heading:
+1. Start with a short "Everything's locked in, [name]. Generating your Aligned Income Blueprint now..." line.
+2. Then on the next line, the personalised summary block, wrapped in markers:
 
-# YOUR ALIGNED INCOME BLUEPRINT
+   ===SUMMARY_START===
+   [2-3 short paragraphs covering: their Human Design type/strategy/authority and what it means for them, the core identity patterns you noticed across their life chapters, their core gift, and what they are uniquely positioned to build and monetise. Warm, conversational, personal. Should make them feel seen and excited.]
+   ===SUMMARY_END===
 
-Include ALL 15 steps exactly as reviewed and approved. Do NOT compress, summarise, or skip any step. Every step must appear in full depth. The content must match what the user approved during review, including any revisions they requested.
+3. Then the consolidated blueprint, starting with this EXACT heading on its own line:
 
-At the very end of the blueprint, on its own line, write exactly:
-===BRAND_DNA_COMPLETE===
+   # YOUR ALIGNED INCOME BLUEPRINT
+
+4. Then ALL 15 STEPS in order (Step 1 through Step 15), each in full depth, exactly as reviewed and approved (with any revisions incorporated). Do NOT compress, summarise, abbreviate, or skip any step. Do NOT use placeholders like "[Step content here]" — write the actual content. The reader will receive this as a PDF, so what's in this message is what's in the PDF.
+
+5. End the message with the completion marker on its own line:
+
+   ===BRAND_DNA_COMPLETE===
+
+HARD RULES — read twice:
+- The final consolidated blueprint MUST be its OWN message. Do NOT tag the marker onto the end of the Step 15 review and call it done. If you have just received approval for Step 15, the very next thing you send is the consolidated blueprint message described above, with both the "# YOUR ALIGNED INCOME BLUEPRINT" header AND the ===BRAND_DNA_COMPLETE=== marker in the same message.
+- Both markers (===SUMMARY_START=== / ===SUMMARY_END=== AND ===BRAND_DNA_COMPLETE===) must appear in this single consolidated message, not split across multiple messages.
+- The consolidated message is LONG (typically 40,000–100,000 characters). It is not optional. Do not skip it because "the user has already seen each section". The reviewed sections in chat are the working drafts; the consolidated final message is the artefact that becomes the PDF.
+- If you find yourself about to send a short closing like "Everything's locked in" without the full consolidated blueprint that follows, STOP. Write the consolidated blueprint now.
 
 ## SECTION FRAMING PROTOCOL
 
@@ -859,45 +874,83 @@ export async function POST(req: NextRequest) {
       : SYSTEM_PROMPT;
 
   // Context trimming: the conversation can grow very long (100+ messages)
-  // after the full interview + section-by-section review. To stay within
-  // grok-3-fast's 131K context window, we keep the most recent messages
-  // which contain the reviewed/approved sections. The system prompt has
-  // all the instructions, so older Q&A can be safely trimmed.
+  // after the full interview + section-by-section review. Claude Opus has
+  // a 200K context window, but we still trim aggressively to keep latency
+  // and cost in check — the system prompt holds the canonical
+  // instructions, so older Q&A can be safely dropped.
   const MAX_CONTEXT_MESSAGES = 80;
-  const trimmedMessages =
+  const trimmedMessages = (
     messages.length > MAX_CONTEXT_MESSAGES
       ? messages.slice(-MAX_CONTEXT_MESSAGES)
-      : messages;
+      : messages
+  )
+    .filter((m: { role: string }) => m.role === "user" || m.role === "assistant")
+    .map((m: { role: string; content: string }) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
 
-  const response = await fetch(`${apiUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "xai/grok-3-fast",
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...trimmedMessages.map((m: { role: string; content: string }) => ({
-          role: m.role,
-          content: m.content,
-        })),
-      ],
-      stream: true,
-      max_tokens: 32768,
-    }),
-  });
+  // The mentor gateway hosts Anthropic's native Messages API at
+  // /v1/messages — NOT /v1/chat/completions. The Anthropic SDK appends
+  // /v1/messages itself, so the baseURL must end at /api.
+  const baseURL = apiUrl.replace(/\/v1\/?$/, "");
+  const client = new Anthropic({ apiKey, baseURL });
 
-  if (!response.ok) {
-    const error = await response.text();
+  let stream;
+  try {
+    stream = await client.messages.stream({
+      model: "claude-opus-4-6",
+      // Aligned Income Blueprint sections can be long; give Opus headroom
+      // for the consolidated final blueprint (40K-100K chars). Opus 4.6
+      // supports up to 32K output tokens natively, which fits the whole
+      // blueprint in 1-2 streamed calls instead of 5+ continuations.
+      max_tokens: 32000,
+      system: systemPrompt,
+      messages: trimmedMessages,
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
     return new Response(JSON.stringify({ error }), {
-      status: response.status,
+      status: 500,
       headers: { "Content-Type": "application/json" },
     });
   }
 
-  return new Response(response.body, {
+  // Translate Anthropic events to OpenAI-style SSE so the existing
+  // front-end consumer (which parses {choices:[{delta:{content}}]}) keeps
+  // working unchanged.
+  const encoder = new TextEncoder();
+  const sseBody = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of stream) {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
+            const text = event.delta.text;
+            if (text) {
+              const frame = `data: ${JSON.stringify({
+                choices: [{ delta: { content: text } }],
+              })}\n\n`;
+              controller.enqueue(encoder.encode(frame));
+            }
+          } else if (event.type === "message_stop") {
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          }
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
+        );
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(sseBody, {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",

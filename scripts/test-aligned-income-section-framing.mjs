@@ -41,23 +41,24 @@ async function loadSystemPrompt() {
   return src.slice(after, end);
 }
 
+const { default: Anthropic } = await import("@anthropic-ai/sdk");
 async function call(messages) {
-  const res = await fetch(`${process.env.MENTOR_API_URL}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.MENTOR_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: "xai/grok-3-fast",
-      messages,
-      stream: false,
-      max_tokens: 4096,
-    }),
+  const apiKey = process.env.MENTOR_API_KEY;
+  const baseURL = (process.env.MENTOR_API_URL ?? "").replace(/\/v1\/?$/, "");
+  const client = new Anthropic({ apiKey, baseURL });
+  let system = "";
+  const turns = [];
+  for (const m of messages) {
+    if (m.role === "system") system = m.content;
+    else turns.push({ role: m.role, content: m.content });
+  }
+  const res = await client.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 4096,
+    system,
+    messages: turns,
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.choices?.[0]?.message?.content ?? "";
+  return res.content[0]?.type === "text" ? res.content[0].text : "";
 }
 
 // A handful of specific, recognisable details we'll plant in the user's
