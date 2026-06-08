@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAdminSession } from "@/lib/admin/session";
+import { getAdminUser } from "@/lib/admin/access";
 import { adminDashboardStats } from "@/lib/admin/rpc";
 import { DashboardClient } from "@/components/admin/DashboardClient";
 import { LoadError } from "@/components/admin/LoadError";
@@ -8,8 +8,8 @@ import type { DashboardStats } from "@/lib/admin/types";
 export const dynamic = "force-dynamic";
 
 export default async function AdminDashboardPage() {
-  const session = await getAdminSession();
-  if (!session) redirect("/admin/login");
+  const admin = await getAdminUser();
+  if (!admin) redirect("/");
 
   let stats: DashboardStats | null = null;
   try {

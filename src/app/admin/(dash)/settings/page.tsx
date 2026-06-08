@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAdminSession } from "@/lib/admin/session";
+import { getAdminUser } from "@/lib/admin/access";
 import { adminList } from "@/lib/admin/rpc";
 import { SettingsClient } from "@/components/admin/SettingsClient";
 import { LoadError } from "@/components/admin/LoadError";
@@ -8,8 +8,8 @@ import type { AdminListRow } from "@/lib/admin/types";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const session = await getAdminSession();
-  if (!session) redirect("/admin/login");
+  const admin = await getAdminUser();
+  if (!admin) redirect("/");
 
   let admins: AdminListRow[] | null = null;
   try {
@@ -20,10 +20,6 @@ export default async function SettingsPage() {
 
   if (!admins) return <LoadError what="settings" />;
   return (
-    <SettingsClient
-      currentAdminId={session.sub}
-      currentEmail={session.email}
-      initialAdmins={admins}
-    />
+    <SettingsClient currentAdminId={admin.adminId} initialAdmins={admins} />
   );
 }

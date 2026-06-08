@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getAdminSession } from "@/lib/admin/session";
+import { getAdminUser } from "@/lib/admin/access";
 import { adminListUsers } from "@/lib/admin/rpc";
 import { UsersClient } from "@/components/admin/UsersClient";
 import { LoadError } from "@/components/admin/LoadError";
@@ -8,8 +8,8 @@ import type { UsersResponse } from "@/lib/admin/types";
 export const dynamic = "force-dynamic";
 
 export default async function UsersPage() {
-  const session = await getAdminSession();
-  if (!session) redirect("/admin/login");
+  const admin = await getAdminUser();
+  if (!admin) redirect("/");
 
   let initial: UsersResponse | null = null;
   try {

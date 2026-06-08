@@ -94,6 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         planName: prevUser?.planName ?? null,
         hasSelectedProgram: prevUser?.hasSelectedProgram ?? false,
         hasBrandDNAPurchase: prevUser?.hasBrandDNAPurchase ?? false,
+        isAdmin: prevUser?.isAdmin ?? false,
       });
 
       try {
@@ -108,13 +109,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             new Promise<T>((resolve) => setTimeout(() => resolve(fallback), ms)),
           ]);
 
-        const [profile, credits, brandDna, subscription, brandDnaPurchase] = await Promise.all([
-          withTimeout(getProfile(supabase, sbUser.id).catch(() => null), null, 10000),
-          withTimeout(getCredits(supabase, sbUser.id).catch(() => null), null),
-          withTimeout(getPrimaryBrandDNA(supabase, sbUser.id).catch(() => null), null),
-          withTimeout(getSubscription(supabase, sbUser.id).catch(() => null), null),
-          withTimeout(getBrandDNAPurchase(supabase, sbUser.id).catch(() => null), null),
-        ]);
+        // Whether this user's email is on the admin allowlist (gates the
+        // Admin Panel button). Uses a SECURITY DEFINER RPC that only reveals
+        // the caller's own status.
+        const checkIsAdmin = async (): Promise<boolean> => {
+          try {
+            const { data } = await (
+              supabase.rpc as unknown as (
+                fn: string
+              ) => Promise<{ data: unknown }>
+            )("current_user_is_admin");
+            return data === true;
+          } catch {
+            return false;
+          }
+        };
+
+        const [profile, credits, brandDna, subscription, brandDnaPurchase, isAdmin] =
+          await Promise.all([
+            withTimeout(getProfile(supabase, sbUser.id).catch(() => null), null, 10000),
+            withTimeout(getCredits(supabase, sbUser.id).catch(() => null), null),
+            withTimeout(getPrimaryBrandDNA(supabase, sbUser.id).catch(() => null), null),
+            withTimeout(getSubscription(supabase, sbUser.id).catch(() => null), null),
+            withTimeout(getBrandDNAPurchase(supabase, sbUser.id).catch(() => null), null),
+            withTimeout(checkIsAdmin(), false),
+          ]);
 
         // No profile row available (timeout, missing row, or RLS denied).
         // This is an expected path (slow network, fresh signup race, etc.)
@@ -122,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // fromDb=false signal is enough for callers to know not to act on
         // the entitlement flags.
         if (!profile) {
-          return { user: buildFallbackUser(), fromDb: false };
+          return { user: { ...buildFallbackUser(), isAdmin }, fromDb: false };
         }
 
         const brandDNA: BrandDNA = brandDna
@@ -179,6 +198,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             planName: subscription?.plans?.display_name ?? prevUser?.planName ?? null,
             hasSelectedProgram,
             hasBrandDNAPurchase: hasBrandDNAPurchase || (prevUser?.hasBrandDNAPurchase ?? false),
+            isAdmin,
           },
           fromDb: true,
         };

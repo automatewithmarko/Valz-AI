@@ -1,14 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/admin/session";
+import { createClient } from "@/lib/supabase/server";
+import { getAdminUser } from "@/lib/admin/access";
 import { getServiceClient, hasServiceRole } from "@/lib/admin/service";
-import { setImpersonationCookie, signImpersonation } from "@/lib/admin/impersonation";
+import {
+  setAdminReturnCookie,
+  setImpersonationCookie,
+  signAdminReturn,
+  signImpersonation,
+} from "@/lib/admin/impersonation";
 
 // Start impersonation: mint a one-time magic-link token for the target user
-// (via the service role), record an audit entry, and hand the token back to
-// the admin's browser, which calls verifyOtp to establish the user session.
+// (via the service role), record an audit entry, stash the admin's own
+// session so they can return cleanly, and hand the token back to the admin's
+// browser, which calls verifyOtp to establish the user session.
 export async function POST(req: NextRequest) {
-  const session = await getAdminSession();
-  if (!session) {
+  const admin = await getAdminUser();
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -34,6 +41,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Capture the admin's current session tokens so exiting impersonation can
+    // restore them (impersonation replaces the browser's Supabase session).
+    const supabase = await createClient();
+    const {
+      data: { session: adminSession },
+    } = await supabase.auth.getSession();
+
     const service = getServiceClient();
 
     // Look up the target user's email (service role bypasses RLS).
@@ -69,8 +83,8 @@ export async function POST(req: NextRequest) {
       const { data: logRow } = await service
         .from("admin_impersonation_log")
         .insert({
-          admin_id: session.sub,
-          admin_email: session.email,
+          admin_id: admin.userId,
+          admin_email: admin.email,
           user_id: userId,
           user_email: email,
         })
@@ -83,13 +97,23 @@ export async function POST(req: NextRequest) {
 
     // Mark the browser as "in impersonation mode" for the exit banner.
     const cookie = signImpersonation({
-      adminId: session.sub,
-      adminEmail: session.email,
+      adminId: admin.adminId,
+      adminEmail: admin.email,
       userId,
       userEmail: email,
       logId,
     });
     await setImpersonationCookie(cookie);
+
+    // Stash the admin's session so Exit can restore it instead of logging out.
+    if (adminSession?.access_token && adminSession?.refresh_token) {
+      await setAdminReturnCookie(
+        signAdminReturn({
+          accessToken: adminSession.access_token,
+          refreshToken: adminSession.refresh_token,
+        })
+      );
+    }
 
     return NextResponse.json({
       ok: true,

@@ -1,7 +1,9 @@
 "use client";
 
-import { MessageSquarePlus } from "lucide-react";
+import Link from "next/link";
+import { MessageSquarePlus, ShieldCheck } from "lucide-react";
 import { Separator } from "@/components/ui/separator";
+import { useAuth } from "@/components/AuthProvider";
 import { SidebarProfile } from "./SidebarProfile";
 import { SidebarBrandDNA } from "./SidebarBrandDNA";
 import { SidebarCredits } from "./SidebarCredits";
@@ -28,6 +30,10 @@ export function Sidebar({
   onNewChat,
   onUploadBrandDNADocument,
 }: SidebarProps) {
+  // Read admin status from the auth context (authoritative), not the chat
+  // user prop, so the button shows only for allowlisted admins.
+  const { user: authUser } = useAuth();
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-sidebar">
       {/* Profile */}
@@ -50,6 +56,19 @@ export function Sidebar({
       </div>
 
       <Separator className="mx-3 w-auto shrink-0 bg-border" />
+
+      {/* Admin Panel — only visible to allowlisted admins */}
+      {authUser?.isAdmin && (
+        <div className="shrink-0 px-3 pt-3">
+          <Link
+            href="/admin"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-3 py-2 text-sm font-medium text-white transition-all hover:bg-[#06264e]/90 dark:bg-[#c08967] dark:text-[#1a1510] dark:hover:bg-[#c08967]/90"
+          >
+            <ShieldCheck className="h-4 w-4" />
+            Admin Panel
+          </Link>
+        </div>
+      )}
 
       {/* New Chat Button */}
       <div className="shrink-0 px-3 pt-3 pb-1">

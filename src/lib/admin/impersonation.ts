@@ -65,3 +65,61 @@ export async function clearImpersonationCookie(): Promise<void> {
     maxAge: 0,
   });
 }
+
+// ── Admin "return" session ───────────────────────────────────────────
+// Because admin status is now the Supabase session itself, impersonating a
+// user replaces the admin's session in the browser. We stash the admin's
+// own tokens in a separate signed httpOnly cookie so that exiting
+// impersonation can restore the admin session instead of logging them out.
+
+export const ADMIN_RETURN_COOKIE = "valz_admin_return";
+const RETURN_CONTEXT = "admin-return-session-v1";
+
+export interface AdminReturnTokens {
+  accessToken: string;
+  refreshToken: string;
+  exp: number;
+}
+
+export function signAdminReturn(
+  tokens: Omit<AdminReturnTokens, "exp"> & { exp?: number }
+): string {
+  const body: AdminReturnTokens = {
+    ...tokens,
+    exp: tokens.exp ?? Math.floor(Date.now() / 1000) + TTL_SECONDS,
+  };
+  return signPayload(body, RETURN_CONTEXT);
+}
+
+export async function getAdminReturn(): Promise<AdminReturnTokens | null> {
+  const store = await cookies();
+  const parsed = verifyPayload<AdminReturnTokens>(
+    store.get(ADMIN_RETURN_COOKIE)?.value,
+    RETURN_CONTEXT
+  );
+  if (!parsed || typeof parsed.exp !== "number") return null;
+  if (parsed.exp < Math.floor(Date.now() / 1000)) return null;
+  return parsed;
+}
+
+export async function setAdminReturnCookie(token: string): Promise<void> {
+  const store = await cookies();
+  store.set(ADMIN_RETURN_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: TTL_SECONDS,
+  });
+}
+
+export async function clearAdminReturnCookie(): Promise<void> {
+  const store = await cookies();
+  store.set(ADMIN_RETURN_COOKIE, "", {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: 0,
+  });
+}

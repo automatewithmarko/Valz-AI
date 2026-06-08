@@ -56,40 +56,22 @@ export async function adminGetByEmail(email: string): Promise<AdminAuthRow | nul
   return rows?.[0] ?? null;
 }
 
-export async function adminGetById(id: string): Promise<AdminAuthRow | null> {
-  const rows = await callRpc<AdminAuthRow[]>("admin_get_by_id", {
-    p_secret: secret(),
-    p_id: id,
-  });
-  return rows?.[0] ?? null;
-}
-
 export async function adminList(): Promise<AdminListRow[]> {
   return (await callRpc<AdminListRow[]>("admin_list", { p_secret: secret() })) ?? [];
 }
 
-export async function adminCreate(
-  email: string,
-  passwordHash: string
-): Promise<AdminListRow> {
-  const rows = await callRpc<AdminListRow[]>("admin_create", {
+// Email-only invite: the new admin signs into the main app with this email
+// and gets admin access — no password is stored.
+export async function adminCreateEmail(email: string): Promise<AdminListRow> {
+  const rows = await callRpc<AdminListRow[]>("admin_create_email", {
     p_secret: secret(),
     p_email: email,
-    p_password_hash: passwordHash,
   });
   return rows[0];
 }
 
 export async function adminDelete(id: string): Promise<boolean> {
   return callRpc<boolean>("admin_delete", { p_secret: secret(), p_id: id });
-}
-
-export async function adminUpdatePassword(id: string, newHash: string): Promise<void> {
-  await callRpc<null>("admin_update_password", {
-    p_secret: secret(),
-    p_id: id,
-    p_new_hash: newHash,
-  });
 }
 
 // ── Support tickets ──────────────────────────────────────────────────

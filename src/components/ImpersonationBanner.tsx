@@ -29,17 +29,26 @@ export function ImpersonationBanner() {
 
   const exit = useCallback(async () => {
     setExiting(true);
+    let restored = false;
     try {
-      await fetch("/api/impersonation/stop", { method: "POST" });
+      const res = await fetch("/api/impersonation/stop", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
+      restored = Boolean(data?.restored);
     } catch {
       /* ignore */
     }
+    if (restored) {
+      // Admin session was restored server-side; reload straight into the panel.
+      window.location.href = "/admin/users";
+      return;
+    }
+    // Couldn't restore — sign out of the user session and return to the app.
     try {
       await createClient().auth.signOut();
     } catch {
       /* ignore */
     }
-    window.location.href = "/admin/users";
+    window.location.href = "/";
   }, []);
 
   // Not impersonating, or sitting on an admin page → nothing to show.

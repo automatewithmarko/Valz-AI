@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import { createClient } from "@/lib/supabase/client";
 import {
   LayoutDashboard,
   LifeBuoy,
@@ -130,19 +131,18 @@ export function AdminShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
 
   async function handleLogout() {
     setLoggingOut(true);
     try {
-      await fetch("/api/admin/logout", { method: "POST" });
+      await createClient().auth.signOut();
     } catch {
       /* ignore */
     }
-    router.replace("/admin/login");
-    router.refresh();
+    // Full sign-out of the app; the home route shows the login screen.
+    window.location.href = "/";
   }
 
   return (

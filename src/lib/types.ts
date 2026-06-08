@@ -31,6 +31,8 @@ export interface User {
   hasSelectedProgram: boolean;
   /** true if the user has purchased the Brand DNA Blueprint ($97 one-time) */
   hasBrandDNAPurchase: boolean;
+  /** true if the user's email is on the admin allowlist (shows the Admin Panel button) */
+  isAdmin: boolean;
 }
 
 export interface BrandDNA {

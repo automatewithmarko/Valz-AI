@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/admin/session";
+import { getAdminUser } from "@/lib/admin/access";
 
 export async function GET() {
-  const session = await getAdminSession();
-  if (!session) {
+  const admin = await getAdminUser();
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   return NextResponse.json({
-    admin: { id: session.sub, email: session.email, isSuper: session.isSuper },
+    admin: { id: admin.adminId, email: admin.email, isSuper: admin.isSuper },
   });
 }

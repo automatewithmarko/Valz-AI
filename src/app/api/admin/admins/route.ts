@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAdminSession } from "@/lib/admin/session";
-import { adminCreate, adminDelete, adminGetByEmail, adminList } from "@/lib/admin/rpc";
-import { hashPassword, passwordIssue } from "@/lib/admin/password";
+import { getAdminUser } from "@/lib/admin/access";
+import {
+  adminCreateEmail,
+  adminDelete,
+  adminGetByEmail,
+  adminList,
+} from "@/lib/admin/rpc";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function GET() {
-  const session = await getAdminSession();
-  if (!session) {
+  const admin = await getAdminUser();
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
@@ -19,47 +23,43 @@ export async function GET() {
   }
 }
 
+// Invite an admin by email only. They get admin access the next time they
+// sign into the main app with that email.
 export async function POST(req: NextRequest) {
-  const session = await getAdminSession();
-  if (!session) {
+  const admin = await getAdminUser();
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  let body: { email?: string; password?: string };
+  let body: { email?: string };
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
   }
   const email = (body.email ?? "").trim().toLowerCase();
-  const password = body.password ?? "";
-
-  if (!EMAIL_RE.test(email)) {
+  if (!EMAIL_RE.test(email) || email.length > 200) {
     return NextResponse.json({ error: "Enter a valid email address." }, { status: 400 });
-  }
-  const pwIssue = passwordIssue(password);
-  if (pwIssue) {
-    return NextResponse.json({ error: pwIssue }, { status: 400 });
   }
 
   try {
     const existing = await adminGetByEmail(email);
     if (existing) {
       return NextResponse.json(
-        { error: "An admin with that email already exists." },
+        { error: "That email is already an admin." },
         { status: 409 }
       );
     }
-    const admin = await adminCreate(email, hashPassword(password));
-    return NextResponse.json({ admin });
+    const created = await adminCreateEmail(email);
+    return NextResponse.json({ admin: created });
   } catch (err) {
     console.error("admin create failed", err);
-    return NextResponse.json({ error: "Failed to create admin." }, { status: 500 });
+    return NextResponse.json({ error: "Failed to add admin." }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await getAdminSession();
-  if (!session) {
+  const admin = await getAdminUser();
+  if (!admin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const { searchParams } = new URL(req.url);
@@ -67,9 +67,9 @@ export async function DELETE(req: NextRequest) {
   if (!id) {
     return NextResponse.json({ error: "Missing admin id." }, { status: 400 });
   }
-  if (id === session.sub) {
+  if (id === admin.adminId) {
     return NextResponse.json(
-      { error: "You can't remove the account you're signed in with." },
+      { error: "You can't remove your own admin access." },
       { status: 400 }
     );
   }
