@@ -13,7 +13,7 @@ type Status = "loading" | "success" | "processing" | "failed";
 function ReturnInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const { refreshUser } = useAuth();
+  const { refreshUser, user } = useAuth();
   const sessionId = params.get("session_id");
   const [status, setStatus] = useState<Status>("loading");
   const [kind, setKind] = useState<string | null>(null);
@@ -142,9 +142,19 @@ function ReturnInner() {
     : isBrandDna
       ? "Your purchase is complete. Let's start your guided discovery."
       : "Your subscription is active. Let's get to work.";
-  const continueHref = isBrandDna ? "/brand-building-dna-ai" : "/valzacchi-ai";
+  // If the buyer already has a configured blueprint, this is an ADDITIONAL
+  // brand profile — route with ?new=1 so the builder starts a fresh one
+  // instead of loading their existing brand.
+  const isAdditionalBrand = isBrandDna && (user?.brandDNA?.configured ?? false);
+  const continueHref = isBrandDna
+    ? isAdditionalBrand
+      ? "/brand-building-dna-ai?new=1"
+      : "/brand-building-dna-ai"
+    : "/valzacchi-ai";
   const continueLabel = isBrandDna
-    ? "Start your discovery"
+    ? isAdditionalBrand
+      ? "Build your new brand profile"
+      : "Start your discovery"
     : "Continue to Valzacchi.ai";
 
   return (

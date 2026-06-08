@@ -87,7 +87,7 @@ export async function POST(req: NextRequest) {
     } else {
       const { data: created, error: createErr } = await supabase
         .from("brand_dnas")
-        .insert({ user_id: user.id, is_primary: true })
+        .insert({ user_id: user.id, is_primary: true, brand_name: "Primary" })
         .select("id")
         .single();
       if (createErr || !created) {

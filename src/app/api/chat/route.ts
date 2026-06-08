@@ -345,32 +345,42 @@ export async function POST(req: NextRequest) {
   let systemPrompt = SYSTEM_PROMPT;
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
 
-  const [brandDnaRes, kbContext, matchedDocs, unembeddedDocsRes] = await Promise.all([
-    supabase
-      .from("brand_dnas")
-      .select("blueprint_content, brand_name")
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .single(),
+  // Read the SELECTED brand profile (the single is_primary one). With
+  // multi-brand support a user can have several; the chat always uses the
+  // one they currently have selected in the sidebar switcher.
+  const { data: selectedBrand } = await supabase
+    .from("brand_dnas")
+    .select("id, blueprint_content, brand_name")
+    .eq("user_id", user.id)
+    .eq("is_primary", true)
+    .maybeSingle();
+  // Only treat it as a usable blueprint if it actually has content (a
+  // freshly-created, not-yet-built profile has none).
+  const brandDna = selectedBrand?.blueprint_content ? selectedBrand : null;
+  const selectedBrandId = selectedBrand?.id ?? null;
+
+  const [kbContext, matchedDocs, unembeddedDocsRes] = await Promise.all([
     lastUserMessage ? buildKbContext(supabase, lastUserMessage, 6) : Promise.resolve(null),
     // Retrieve only the user-uploaded docs whose "when_to_use" hint is
     // semantically close to the live query — that's how the hint becomes
-    // load-bearing. Threshold + match_count are tuned in the helper.
+    // load-bearing. Scoped to the selected brand so switching brands
+    // changes which docs the AI consults.
     lastUserMessage
-      ? matchBrandDnaDocs(supabase, user.id, lastUserMessage)
+      ? matchBrandDnaDocs(supabase, user.id, lastUserMessage, { brandDnaId: selectedBrandId })
       : Promise.resolve([]),
     // Legacy fallback: any doc that hasn't been embedded yet (uploaded
     // before the embedding column existed, or upload-time embedding
-    // failed). Include them unconditionally so old uploads still work
-    // until they're backfilled.
-    supabase
-      .from("brand_dna_documents")
-      .select("label, when_to_use, content_text")
-      .eq("user_id", user.id)
-      .is("when_to_use_embedding", null)
-      .order("created_at", { ascending: true }),
+    // failed). Scoped to the selected brand too.
+    selectedBrandId
+      ? supabase
+          .from("brand_dna_documents")
+          .select("label, when_to_use, content_text")
+          .eq("user_id", user.id)
+          .eq("brand_dna_id", selectedBrandId)
+          .is("when_to_use_embedding", null)
+          .order("created_at", { ascending: true })
+      : Promise.resolve({ data: [] as { label: string; when_to_use: string | null; content_text: string | null }[] }),
   ]);
-  const brandDna = brandDnaRes.data;
   const unembeddedDocs = unembeddedDocsRes.data ?? [];
 
   if (brandDna?.blueprint_content) {

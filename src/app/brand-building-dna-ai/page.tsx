@@ -17,6 +17,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { createClient } from "@/lib/supabase/client";
 import {
   createBrandDNA,
+  createAndSelectBrandDNA,
   getPrimaryBrandDNA,
   getBrandDNAChatMessages,
   insertBrandDNAChatMessage,
@@ -841,6 +842,11 @@ export default function BrandBuildingPage() {
 function BrandBuildingContent() {
   const searchParams = useSearchParams();
   const isEditMode = searchParams.get("mode") === "edit";
+  // ?new=1 means "start a fresh brand profile" — set after an additional
+  // Aligned Income Blueprint purchase, or when the user explicitly adds a
+  // new brand. We create + select a new brand_dnas row instead of loading
+  // the currently-selected (already-built) one.
+  const isNewProfile = searchParams.get("new") === "1";
 
   const { user: authUser, supabaseUser, signOut, refreshUser } = useAuth();
   const [supabase] = useState(() => createClient());
@@ -883,6 +889,25 @@ function BrandBuildingContent() {
 
     const loadExisting = async () => {
       try {
+        // Fresh-profile path: spin up a new brand and make it the selected
+        // one, then drop into the build landing. Skips loading the prior
+        // brand entirely. Only create when the current selected brand is
+        // already configured (so a refresh of ?new=1 mid-build doesn't keep
+        // spawning empties) — otherwise reuse the empty selected one.
+        if (isNewProfile && !isEditMode) {
+          const current = await getPrimaryBrandDNA(supabase, userId);
+          if (!current || current.status === "active") {
+            const fresh = await createAndSelectBrandDNA(supabase, userId);
+            setBrandDnaId(fresh.id);
+          } else {
+            setBrandDnaId(current.id);
+          }
+          // Strip ?new=1 so a later refresh doesn't create another profile.
+          window.history.replaceState({}, "", "/brand-building-dna-ai");
+          setLoadingSession(false);
+          return;
+        }
+
         const existing = await getPrimaryBrandDNA(supabase, userId);
         if (existing) {
           setBrandDnaId(existing.id);
@@ -941,7 +966,7 @@ function BrandBuildingContent() {
     };
 
     loadExisting();
-  }, [userId, supabase, isEditMode]);
+  }, [userId, supabase, isEditMode, isNewProfile]);
 
   const lastMessageContent = messages[messages.length - 1]?.content;
   useEffect(() => {
@@ -1181,12 +1206,13 @@ function BrandBuildingContent() {
     } catch {
       // localStorage may be unavailable
     }
+    // Don't overwrite the profile name — it's user-controlled (defaults to
+    // "Primary" / "Untitled" and is renamable in the sidebar switcher).
     updateBrandDNA(supabase, brandDnaId, {
       status: "active",
       blueprint_content: blueprintContent,
-      brand_name: authUser?.name || "",
     }).then(() => refreshUser()).catch((err) => console.error("Failed to save brand DNA:", err));
-  }, [messages, isComplete, brandDnaId, supabase, userId, authUser, refreshUser, isEditMode]);
+  }, [messages, isComplete, brandDnaId, supabase, userId, refreshUser, isEditMode]);
 
   // Detect edit-mode completion marker — do NOT auto-save, wait for user to click Save.
   // Skip messages that were already "seen" after the user clicked Continue Editing.
@@ -1546,10 +1572,10 @@ function BrandBuildingContent() {
     const cleanContent = lastAssistant.content.replace(EDIT_COMPLETION_MARKER, "").trim();
 
     try {
+      // Preserve the user-chosen profile name (don't overwrite with account name).
       await updateBrandDNA(supabase, brandDnaId, {
         status: "active",
         blueprint_content: cleanContent,
-        brand_name: authUser?.name || "",
       });
 
       try {

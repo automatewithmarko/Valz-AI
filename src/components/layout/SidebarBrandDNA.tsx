@@ -5,24 +5,41 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  Check,
+  ChevronsUpDown,
   Download,
   FileText,
   Loader2,
   Pencil,
   Plus,
+  Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
-import type { User } from "@/lib/types";
+import type { BrandDNARow, User } from "@/lib/types";
 import { downloadBrandDNA } from "@/lib/brand-pdf";
 import { createClient } from "@/lib/supabase/client";
-import { getPrimaryBrandDNA } from "@/lib/supabase/db";
+import {
+  createAndSelectBrandDNA,
+  getBrandDNAs,
+  getBrandDnaSlots,
+  getPrimaryBrandDNA,
+  selectBrandDNA,
+  updateBrandDNA,
+} from "@/lib/supabase/db";
 import { useAuth } from "@/components/AuthProvider";
 import {
   Dialog,
   DialogContent,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface SidebarBrandDNAProps {
   user: User;
@@ -50,6 +67,15 @@ function hasSupportedExtension(name: string): boolean {
   return ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
+// Render a status dot + label for a brand profile. Colour AND text so it
+// reads without relying on hue alone (a11y: color-not-only).
+function statusMeta(status: string): { label: string; dot: string; pulse: boolean } {
+  if (status === "active") return { label: "Active", dot: "bg-green-500", pulse: true };
+  if (status === "in_progress" || status === "inactive")
+    return { label: "In progress", dot: "bg-yellow-500", pulse: true };
+  return { label: "Not started", dot: "bg-gray-400", pulse: false };
+}
+
 export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
   const router = useRouter();
   const { refreshUser } = useAuth();
@@ -58,13 +84,51 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
   const [resetting, setResetting] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const { brandDNA } = user;
+  // Multi-brand state
+  const [brands, setBrands] = useState<BrandDNARow[]>([]);
+  const [slots, setSlots] = useState(0);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [purchaseOpen, setPurchaseOpen] = useState(false);
+  // Rename
+  const [renameTarget, setRenameTarget] = useState<BrandDNARow | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+
+  const loadBrands = useCallback(async () => {
+    const supabase = createClient();
+    try {
+      const [rows, slotCount] = await Promise.all([
+        getBrandDNAs(supabase, user.id),
+        getBrandDnaSlots(supabase, user.id),
+      ]);
+      setBrands(rows ?? []);
+      setSlots(slotCount);
+    } catch (err) {
+      console.error("Failed to load brand profiles:", err);
+    }
+  }, [user.id]);
+
+  useEffect(() => {
+    void loadBrands();
+  }, [loadBrands]);
+
+  // The currently-selected profile is the single is_primary row. Fall back
+  // to the first if (transiently) none is flagged.
+  const selected = brands.find((b) => b.is_primary) ?? brands[0] ?? null;
+  const selectedStatus = selected?.status ?? "not_configured";
+  const selectedConfigured = selectedStatus === "active";
+  const selectedName = selected?.brand_name?.trim() || "Untitled";
+  // Each completed A$97 purchase grants one profile slot; brands.length is
+  // how many are already in use.
+  const hasFreeSlot = brands.length < slots;
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
       const supabase = createClient();
-      const dna = await getPrimaryBrandDNA(supabase, user.id);
+      const dna = selected ?? (await getPrimaryBrandDNA(supabase, user.id));
       const content = dna?.blueprint_content || localStorage.getItem("brandDNAContent");
       if (content) {
         await downloadBrandDNA(content);
@@ -75,25 +139,95 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
   };
 
   const handleBuildNow = () => {
-    // Subscribers without the one-time Blueprint purchase go straight to
-    // checkout instead of bouncing back through /choose-program (the
-    // onboarding picker), which felt like restarting the flow.
-    if (!user.hasBrandDNAPurchase && !brandDNA.configured) {
+    // First-ever profile: subscribers without the one-time Blueprint
+    // purchase go to checkout; everyone else goes straight to the builder.
+    if (!user.hasBrandDNAPurchase && !selectedConfigured) {
       router.push("/checkout/brand-dna");
     } else {
       router.push("/brand-building-dna-ai");
     }
   };
 
+  // Switch the selected brand profile. The Back Pocket chat reads the
+  // selected (primary) brand server-side on every message, so switching
+  // here is enough for all downstream context to follow.
+  const handleSwitch = async (id: string) => {
+    if (id === selected?.id) {
+      setSwitcherOpen(false);
+      return;
+    }
+    setSwitchingId(id);
+    try {
+      const supabase = createClient();
+      await selectBrandDNA(supabase, id);
+      await Promise.all([loadBrands(), refreshUser()]);
+      setSwitcherOpen(false);
+    } catch (err) {
+      console.error("Failed to switch brand profile:", err);
+    } finally {
+      setSwitchingId(null);
+    }
+  };
+
+  // "Add another brand profile": if the user has a paid-but-unused slot,
+  // create + select a fresh profile and go build it. Otherwise prompt them
+  // to purchase another Aligned Income Blueprint.
+  const handleAddProfile = async () => {
+    setSwitcherOpen(false);
+    if (!hasFreeSlot) {
+      setPurchaseOpen(true);
+      return;
+    }
+    setCreating(true);
+    try {
+      const supabase = createClient();
+      await createAndSelectBrandDNA(supabase, user.id);
+      await Promise.all([loadBrands(), refreshUser()]);
+      router.push("/brand-building-dna-ai");
+    } catch (err) {
+      console.error("Failed to create brand profile:", err);
+      setCreating(false);
+    }
+  };
+
+  const openRename = (b: BrandDNARow) => {
+    setSwitcherOpen(false);
+    setRenameTarget(b);
+    setRenameValue(b.brand_name?.trim() || "");
+  };
+
+  const handleRenameSave = async () => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name || name === renameTarget.brand_name) {
+      setRenameTarget(null);
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      const supabase = createClient();
+      await updateBrandDNA(supabase, renameTarget.id, { brand_name: name });
+      await Promise.all([loadBrands(), refreshUser()]);
+      setRenameTarget(null);
+    } catch (err) {
+      console.error("Failed to rename brand profile:", err);
+    } finally {
+      setRenameSaving(false);
+    }
+  };
+
   const handleCreateNew = async () => {
+    if (!selected) return;
     setResetting(true);
     try {
       const supabase = createClient();
 
+      // Scope the reset to the SELECTED brand only — never wipe the user's
+      // other profiles.
       await supabase
         .from("brand_dna_chat_messages")
         .delete()
-        .eq("user_id", user.id);
+        .eq("brand_dna_id", selected.id);
 
       await supabase
         .from("brand_dnas")
@@ -102,12 +236,13 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
           blueprint_content: null,
           brand_name: "",
         })
-        .eq("user_id", user.id);
+        .eq("id", selected.id);
 
       localStorage.removeItem("brandDNAContent");
 
-      await refreshUser();
+      await Promise.all([loadBrands(), refreshUser()]);
       setShowConfirm(false);
+      setDialogOpen(false);
       router.push("/brand-building-dna-ai");
     } catch (err) {
       console.error("Failed to reset brand DNA:", err);
@@ -115,109 +250,174 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
     }
   };
 
+  const sel = statusMeta(selectedStatus);
+
   return (
     <>
       <div className="mx-3 rounded-lg border border-border bg-[#f2dacb]/20 p-3">
         <p className="mb-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
           Aligned Income Blueprint
         </p>
-        {brandDNA.configured ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-              </span>
-              <span className="text-sm text-foreground">Active</span>
-              <span className="ml-auto truncate text-xs text-muted-foreground">
-                {brandDNA.brandName}
-              </span>
-            </div>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-              <DialogTrigger asChild>
-                <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30">
-                  <FileText className="h-3.5 w-3.5" />
-                  View Aligned Income Blueprint
-                </button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <div className="flex flex-col items-center px-4 py-6 text-center">
-                  <Image
-                    src="/logo.png"
-                    alt="Valzacchi.ai"
-                    width={72}
-                    height={72}
-                    className="mb-5 h-auto w-auto"
-                  />
-                  <h2 className="mb-2 text-xl font-semibold text-foreground">
-                    Your Aligned Income Blueprint
-                  </h2>
-                  <p className="mb-6 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                    Download it as a styled PDF, edit it, or start fresh with a new one.
-                  </p>
-                  <div className="flex w-full flex-col gap-2.5">
+
+        {/* Brand profile switcher — the card header is the trigger. Shows
+            the selected profile (status dot + name) and opens a menu to
+            switch or add another. */}
+        {brands.length > 0 ? (
+          <DropdownMenu open={switcherOpen} onOpenChange={setSwitcherOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                aria-label="Switch brand profile"
+                className="mb-2 flex w-full items-center gap-2 rounded-lg border border-border bg-background/60 px-2.5 py-2 text-left transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#06264e]/30"
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  {sel.pulse && (
+                    <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-75 ${sel.dot}`} />
+                  )}
+                  <span className={`relative inline-flex h-2 w-2 rounded-full ${sel.dot}`} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium text-foreground">
+                    {selectedName}
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground">{sel.label}</span>
+                </span>
+                {switchingId ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+                ) : (
+                  <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-[248px]">
+              {brands.map((b) => {
+                const m = statusMeta(b.status);
+                const isSel = b.id === selected?.id;
+                return (
+                  <DropdownMenuItem
+                    key={b.id}
+                    onSelect={(e) => {
+                      e.preventDefault();
+                      void handleSwitch(b.id);
+                    }}
+                    className="group/item gap-2"
+                  >
+                    <span className={`h-2 w-2 shrink-0 rounded-full ${m.dot}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm text-foreground">
+                        {b.brand_name?.trim() || "Untitled"}
+                      </span>
+                      <span className="block text-[10px] text-muted-foreground">{m.label}</span>
+                    </span>
+                    {/* Rename — stop the pointer/click from triggering the row's
+                        switch select, then open the rename dialog. */}
                     <button
-                      onClick={handleDownload}
-                      disabled={downloading}
-                      className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-70"
+                      type="button"
+                      aria-label={`Rename ${b.brand_name?.trim() || "Untitled"}`}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        openRename(b);
+                      }}
+                      className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-colors hover:bg-[#06264e]/10 hover:text-[#06264e] focus-visible:opacity-100 group-hover/item:opacity-100"
                     >
-                      {downloading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="h-4 w-4" />
-                      )}
-                      {downloading ? "Generating PDF..." : "Download blueprint"}
+                      <Pencil className="h-3 w-3" />
                     </button>
-                    <button
-                      onClick={() => router.push("/brand-building-dna-ai?mode=edit")}
-                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
-                    >
-                      <Pencil className="h-4 w-4" />
-                      Edit blueprint
-                    </button>
-                    <button
-                      onClick={() => setShowConfirm(true)}
-                      className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
-                    >
-                      <Plus className="h-4 w-4" />
-                      Create new blueprint
-                    </button>
-                  </div>
+                    {isSel && <Check className="h-3.5 w-3.5 shrink-0 text-[#06264e]" />}
+                  </DropdownMenuItem>
+                );
+              })}
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  void handleAddProfile();
+                }}
+                className="gap-2 text-[#06264e]"
+              >
+                {creating ? (
+                  <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5 shrink-0" />
+                )}
+                <span className="text-sm font-medium">Add another brand profile</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
+
+        {/* Action area — reflects the SELECTED profile's status. */}
+        {selectedConfigured ? (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <button className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30">
+                <FileText className="h-3.5 w-3.5" />
+                View Aligned Income Blueprint
+              </button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-md">
+              <div className="flex flex-col items-center px-4 py-6 text-center">
+                <Image
+                  src="/logo.png"
+                  alt="Valzacchi.ai"
+                  width={72}
+                  height={72}
+                  className="mb-5 h-auto w-auto"
+                />
+                <h2 className="mb-2 text-xl font-semibold text-foreground">
+                  {selectedName}
+                </h2>
+                <p className="mb-6 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                  Download this blueprint as a styled PDF, edit it, or start fresh with a new one.
+                </p>
+                <div className="flex w-full flex-col gap-2.5">
+                  <button
+                    onClick={handleDownload}
+                    disabled={downloading}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-70"
+                  >
+                    {downloading ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {downloading ? "Generating PDF..." : "Download blueprint"}
+                  </button>
+                  <button
+                    onClick={() => router.push("/brand-building-dna-ai?mode=edit")}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+                  >
+                    <Pencil className="h-4 w-4" />
+                    Edit blueprint
+                  </button>
+                  <button
+                    onClick={() => setShowConfirm(true)}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:border-[#c08967]/40 hover:bg-[#f2dacb]/30"
+                  >
+                    <Plus className="h-4 w-4" />
+                    Rebuild this blueprint
+                  </button>
                 </div>
-              </DialogContent>
-            </Dialog>
-          </div>
-        ) : brandDNA.status === "inactive" ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-yellow-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-yellow-500" />
-              </span>
-              <span className="text-sm text-muted-foreground">In Progress</span>
-            </div>
-            <button
-              onClick={() => router.push("/brand-building-dna-ai")}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90"
-            >
-              <FileText className="h-3.5 w-3.5" />
-              Continue Building
-            </button>
-          </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        ) : selectedStatus === "in_progress" || selectedStatus === "inactive" ? (
+          <button
+            onClick={() => router.push("/brand-building-dna-ai")}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90"
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Continue building
+          </button>
         ) : (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-gray-400" />
-              <span className="text-sm text-muted-foreground">Not started</span>
-            </div>
-            <button
-              onClick={handleBuildNow}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90"
-            >
-              <FileText className="h-3.5 w-3.5" />
-              Build now
-            </button>
-          </div>
+          <button
+            onClick={handleBuildNow}
+            disabled={creating}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-70"
+          >
+            {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileText className="h-3.5 w-3.5" />}
+            Build now
+          </button>
         )}
       </div>
 
@@ -235,10 +435,12 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
               <AlertTriangle className="h-6 w-6 text-red-500" />
             </div>
             <h2 className="mb-2 text-lg font-semibold text-foreground">
-              Are you sure you want to start?
+              Rebuild this blueprint?
             </h2>
             <p className="mb-6 text-sm text-muted-foreground">
-              This will delete your old income blueprint and entire chat history. You will start the building process from scratch.
+              This deletes <span className="font-medium text-foreground">{selectedName}</span>&rsquo;s
+              blueprint and its chat history, then starts that profile from scratch. Your other brand
+              profiles are not affected.
             </p>
             <div className="flex w-full flex-col gap-3">
               <button
@@ -257,6 +459,99 @@ export function SidebarBrandDNA({ user }: SidebarBrandDNAProps) {
                 className="w-full rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-[#f2dacb]/30 disabled:opacity-50"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Purchase-required modal — shown when the user wants another brand
+          profile but has no paid slot left. Each profile is its own A$97
+          Aligned Income Blueprint. */}
+      <Dialog open={purchaseOpen} onOpenChange={setPurchaseOpen}>
+        <DialogContent className="sm:max-w-md">
+          <div className="flex flex-col items-center px-4 py-6 text-center">
+            <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-full bg-[#06264e]/[0.06]">
+              <Sparkles className="h-6 w-6 text-[#06264e]" />
+            </div>
+            <h2 className="mb-2 text-xl font-semibold text-foreground">
+              Add another brand profile
+            </h2>
+            <p className="mb-6 max-w-sm text-sm leading-relaxed text-muted-foreground">
+              Each brand gets its own Aligned Income Blueprint, a complete strategy built around that
+              brand&rsquo;s story, audience, and Human Design. Unlock another profile for{" "}
+              <span className="font-semibold text-foreground">A$97</span> one-time.
+            </p>
+            <div className="flex w-full flex-col gap-2.5">
+              <button
+                onClick={() => {
+                  setPurchaseOpen(false);
+                  router.push("/checkout/brand-dna?additional=1");
+                }}
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#06264e] px-6 py-3 text-sm font-medium text-white transition-colors hover:bg-[#06264e]/90"
+              >
+                <Sparkles className="h-4 w-4" />
+                Unlock another profile · A$97
+              </button>
+              <button
+                onClick={() => setPurchaseOpen(false)}
+                className="w-full rounded-lg border border-[#e0d6d0] px-6 py-3 text-sm font-medium text-foreground transition-colors hover:bg-[#f2dacb]/30"
+              >
+                Maybe later
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename a brand profile. */}
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(o) => {
+          if (!o && !renameSaving) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <div className="px-1 py-1">
+            <h2 className="mb-1 text-base font-semibold text-foreground">Rename brand profile</h2>
+            <p className="mb-4 text-xs leading-relaxed text-muted-foreground">
+              Give this profile a name you&rsquo;ll recognise in the switcher.
+            </p>
+            <label htmlFor="brand-rename" className="mb-1 block text-[11px] font-medium text-foreground">
+              Profile name
+            </label>
+            <input
+              id="brand-rename"
+              type="text"
+              value={renameValue}
+              autoFocus
+              maxLength={60}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void handleRenameSave();
+                }
+              }}
+              placeholder="e.g. The Return Edit"
+              disabled={renameSaving}
+              className="mb-4 w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-[#06264e] focus:outline-none disabled:opacity-60"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setRenameTarget(null)}
+                disabled={renameSaving}
+                className="rounded-md border border-border px-4 py-2 text-xs font-medium text-foreground transition-colors hover:bg-[#f2dacb]/30 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRenameSave}
+                disabled={renameSaving || !renameValue.trim()}
+                className="inline-flex items-center justify-center gap-2 rounded-md bg-[#06264e] px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-[#06264e]/90 disabled:opacity-60"
+              >
+                {renameSaving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {renameSaving ? "Saving…" : "Save name"}
               </button>
             </div>
           </div>

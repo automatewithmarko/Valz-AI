@@ -33,7 +33,7 @@ export async function matchBrandDnaDocs(
   supabase: SupabaseClient,
   userId: string,
   query: string,
-  opts: { matchCount?: number; threshold?: number } = {}
+  opts: { matchCount?: number; threshold?: number; brandDnaId?: string | null } = {}
 ): Promise<BrandDnaDocMatch[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
@@ -45,6 +45,9 @@ export async function matchBrandDnaDocs(
     query_embedding: embedding,
     match_count: opts.matchCount ?? 4,
     similarity_threshold: opts.threshold ?? 0.3,
+    // Scope to the selected brand profile when provided so switching brands
+    // changes which uploaded docs the AI consults.
+    p_brand_dna_id: opts.brandDnaId ?? null,
   });
   if (error) {
     console.warn("matchBrandDnaDocs failed", error.message);

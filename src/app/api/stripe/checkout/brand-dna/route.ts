@@ -21,18 +21,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // If they already have an active purchase, don't sell them another one.
-  const { data: existing } = await supabase
-    .from("brand_dna_purchases")
-    .select("id, status")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .maybeSingle();
-  if (existing) {
-    return NextResponse.json(
-      { error: "Aligned Income AI is already active on your account" },
-      { status: 409 }
-    );
+  // `additional: true` means the user is intentionally buying ANOTHER brand
+  // profile (each purchase grants one more slot). Only the FIRST purchase is
+  // blocked when one already exists.
+  const { additional } = (await req.json().catch(() => ({}))) as {
+    additional?: boolean;
+  };
+
+  if (!additional) {
+    // First-purchase guard: if they already own the Blueprint, don't sell a
+    // duplicate first purchase.
+    const { data: existing } = await supabase
+      .from("brand_dna_purchases")
+      .select("id, status")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .maybeSingle();
+    if (existing) {
+      return NextResponse.json(
+        { error: "Aligned Income AI is already active on your account" },
+        { status: 409 }
+      );
+    }
   }
 
   const { data: profile } = await supabase

@@ -133,6 +133,7 @@ export type Database = {
           id: string
           price_cents: number
           purchased_at: string
+          slots: number
           status: string
           stripe_payment_intent_id: string | null
           user_id: string
@@ -141,6 +142,7 @@ export type Database = {
           id?: string
           price_cents?: number
           purchased_at?: string
+          slots?: number
           status?: string
           stripe_payment_intent_id?: string | null
           user_id: string
@@ -149,6 +151,7 @@ export type Database = {
           id?: string
           price_cents?: number
           purchased_at?: string
+          slots?: number
           status?: string
           stripe_payment_intent_id?: string | null
           user_id?: string
@@ -560,6 +563,7 @@ export type Database = {
       match_brand_dna_documents: {
         Args: {
           match_count?: number
+          p_brand_dna_id?: string
           p_user_id: string
           query_embedding: string
           similarity_threshold?: number
@@ -587,6 +591,10 @@ export type Database = {
           section_path: string
           similarity: number
         }[]
+      }
+      set_primary_brand_dna: {
+        Args: { p_brand_dna_id: string }
+        Returns: undefined
       }
       stripe_apply_brand_dna_purchase: {
         Args: {

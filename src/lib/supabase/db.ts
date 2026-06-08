@@ -85,11 +85,17 @@ export async function getBrandDNAs(supabase: TypedClient, userId: string) {
 }
 
 export async function getPrimaryBrandDNA(supabase: TypedClient, userId: string) {
+  // Order by updated_at + limit(1) instead of .single()/.maybeSingle() so
+  // that an accidental two-primary state (which should never happen, but a
+  // legacy insert path could create) returns the most-recently-touched one
+  // rather than throwing a "multiple rows" error and breaking the app.
   const { data, error } = await supabase
     .from("brand_dnas")
     .select("*")
     .eq("user_id", userId)
     .eq("is_primary", true)
+    .order("updated_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
   if (error) throw error;
   return data;
@@ -98,7 +104,8 @@ export async function getPrimaryBrandDNA(supabase: TypedClient, userId: string) 
 export async function createBrandDNA(
   supabase: TypedClient,
   userId: string,
-  brandName: string = ""
+  // The user's first/primary profile defaults to "Primary"; renamable later.
+  brandName: string = "Primary"
 ) {
   const { data, error } = await supabase
     .from("brand_dnas")
@@ -126,6 +133,53 @@ export async function updateBrandDNA(
     .select()
     .single();
   if (error) throw error;
+  return data;
+}
+
+// ─── Multi-brand profiles ──────────────────────────────────────────
+
+// How many brand-profile slots the user has paid for (one per completed
+// A$97 Aligned Income Blueprint purchase). Returns 0 if they've never
+// purchased.
+export async function getBrandDnaSlots(
+  supabase: TypedClient,
+  userId: string
+): Promise<number> {
+  const { data, error } = await supabase
+    .from("brand_dna_purchases")
+    .select("slots")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .maybeSingle();
+  if (error) throw error;
+  return data?.slots ?? 0;
+}
+
+// Make a brand the single selected (primary) one for the user. Atomic via
+// the set_primary_brand_dna RPC (scoped to auth.uid()).
+export async function selectBrandDNA(supabase: TypedClient, brandDnaId: string) {
+  const { error } = await supabase.rpc("set_primary_brand_dna", {
+    p_brand_dna_id: brandDnaId,
+  });
+  if (error) throw error;
+}
+
+// Create an ADDITIONAL brand profile and immediately select it. Inserts
+// as non-primary first, then flips primary atomically so there's never a
+// two-primary window.
+export async function createAndSelectBrandDNA(
+  supabase: TypedClient,
+  userId: string,
+  // Additional profiles default to "Untitled"; renamable in the switcher.
+  brandName: string = "Untitled"
+) {
+  const { data, error } = await supabase
+    .from("brand_dnas")
+    .insert({ user_id: userId, brand_name: brandName, is_primary: false })
+    .select()
+    .single();
+  if (error) throw error;
+  await selectBrandDNA(supabase, data.id);
   return data;
 }
 
