@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { AuthProvider } from "@/components/AuthProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SupportWidget } from "@/components/support/SupportWidget";
+import { ImpersonationBanner } from "@/components/ImpersonationBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,6 +41,8 @@ export default function RootLayout({
           <AuthProvider>
             <TooltipProvider delayDuration={200}>
               {children}
+              <ImpersonationBanner />
+              <SupportWidget />
             </TooltipProvider>
           </AuthProvider>
         </ThemeProvider>
