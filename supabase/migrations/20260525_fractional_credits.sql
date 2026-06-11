@@ -6,12 +6,13 @@
 -- balances, the integer columns become numeric. Plan grants stay
 -- whole numbers, but balances and per-turn deductions can be partial.
 --
--- Also: chars-per-credit was changed from 1,000 → 1,600 in the app.
+-- Also: chars-per-credit was changed from 1,000 → 1,450 in the app
+-- (sized for ~55% gross margin on Sonnet 4.6 via the Mentor gateway).
 -- Updating the plan features text so the on-screen character estimate
 -- matches the new ratio:
---   Starter 1,500 cr → ~2.4M characters
---   Growth  2,500 cr → ~4.0M characters
---   Pro     3,500 cr → ~5.6M characters
+--   Starter 1,500 cr → ~2.2M characters
+--   Growth  2,500 cr → ~3.6M characters
+--   Pro     3,500 cr → ~5.1M characters
 --
 -- Existing integer balances cast cleanly into numeric — no data loss.
 -- ─────────────────────────────────────────────────────────────────────
@@ -84,10 +85,10 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.deduct_credits(uuid, numeric) TO authenticated;
 
--- 3. Refresh plan features text to reflect 1,600 chars/credit.
+-- 3. Refresh plan features text to reflect 1,450 chars/credit.
 UPDATE public.plans
 SET features = '[
-  "1,500 AI credits per month (~2.4M characters)",
+  "1,500 AI credits per month (~2.2M characters)",
   "Personalized, context-aware brand analysis",
   "1 Brand DNA profile",
   "Email support"
@@ -96,7 +97,7 @@ WHERE name = 'starter';
 
 UPDATE public.plans
 SET features = '[
-  "2,500 AI credits per month (~4.0M characters)",
+  "2,500 AI credits per month (~3.6M characters)",
   "Longer, more detailed responses",
   "Voice-to-text input for hands-free use",
   "3 Brand DNA profiles",
@@ -106,7 +107,7 @@ WHERE name = 'growth';
 
 UPDATE public.plans
 SET features = '[
-  "3,500 AI credits per month (~5.6M characters)",
+  "3,500 AI credits per month (~5.1M characters)",
   "Fastest response times",
   "Unlimited Brand DNA profiles",
   "Manage multiple brands in one account",

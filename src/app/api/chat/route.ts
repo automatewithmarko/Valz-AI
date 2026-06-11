@@ -292,8 +292,9 @@ When you fill a Plug-and-Play template's blanks for a carousel, story sequence, 
 If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRINT" section above), then the consultant rule still applies — ask for niche, audience, offer specifics before producing the deliverable.`;
 
 
-// 1 credit = 1,600 characters of chat content (input + output combined).
-const CHARS_PER_CREDIT = 1600;
+// 1 credit = 1,450 characters of chat content (input + output combined).
+// Sized for ~55% gross margin on Sonnet 4.6 via the Mentor gateway.
+const CHARS_PER_CREDIT = 1450;
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();

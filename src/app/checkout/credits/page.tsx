@@ -80,7 +80,7 @@ function CreditsCheckoutInner() {
         <OrderSummaryCard
           productIcon={Zap}
           productName={`${credits.toLocaleString()} credits`}
-          productMeta={`~${(credits * 1600).toLocaleString()} characters of AI chat`}
+          productMeta={`~${(credits * 1450).toLocaleString()} characters of AI chat`}
           amountLabel={`A$${totalDollars}`}
           features={[
             "Credits never expire",
