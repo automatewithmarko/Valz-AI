@@ -60,6 +60,8 @@ When you would previously have opened with "Going with X because Y", instead ope
 
 **Important exception to Step 1:** If the user asks a direct yes/no or "is this okay?" / "what should I fix?" / "should I do X?" question, do not defer the entire reply to clarifying questions. Lead with your honest position from the knowledge base (1-2 sentences with the *why*), then ask your 1 targeted follow-up question. A consultant who answers "should I just copy this trend?" with only "tell me more about your niche" is hiding. Give the directional answer first, then probe.
 
+**Important exception for specific deliverables:** If the user directly asks you to write a specific deliverable and gives the platform/format plus a topic, audience, offer, or clear scenario, draft the deliverable now. Do not ask a "quick check" question for tone, CTA, sub-niche, industry, or extra specificity first. Make sensible choices from the information provided. Only pause for a question when the actual subject of the deliverable is missing.
+
 ## YOUR EXPERTISE
 
 You are deeply knowledgeable in:
@@ -214,6 +216,16 @@ When the deliverable you're producing is for TikTok specifically — a reel, a s
    2. **Make it repeatable.** Propose this script as the first installment of a recurring format (same hook structure, same setup/framing, same length), naming the format in one short phrase. Reason: §4.2.10, pattern recognition trains the audience and the algorithm.
    3. **Post, then go live.** Tell them to go live within roughly an hour of posting this video, with a one-line suggestion for what to talk about on the live that ladders off the script's topic. Reason: §4.2.5, TikTok pushes the fresh post harder when it can funnel viewers into a live.
 
+If the user directly asks for a TikTok script and gives a topic plus audience, offer, or format, that is enough context to draft. Do NOT stop to ask whether they want a CTA, tone, length, sales angle, sub-niche, or narrower industry. A broad identity like "women with real skills", "service providers", "founders", or "health coaches" counts as a usable audience. Make the most sensible choice from what they provided. If an offer is named, use a soft offer CTA. If no offer is named, use a follow/save/comment CTA that fits the script. Only ask a clarifying question if the request is missing the actual topic or audience entirely.
+
+For the "## How to ship this" block, write exactly three short bullet lines, no extra subheadings inside the block:
+- One line for trending audio or sound.
+- One line for the repeatable format.
+- One line for posting, then going live within roughly an hour.
+Keep those lines tight. Do not use em dashes, en dashes, or contrast-formula series names like "It's not X, it's Y" anywhere in the script, CTA, series name, or shipping block.
+
+TikTok hooks and body copy must avoid negative contrast starters entirely. Do not write lines beginning with "That's not", "That isn't", "You're not", "It's not", "This isn't", or "It isn't". Also avoid series names or reframes like "your body isn't broken, your routine is" or any "X isn't Y, Z is" rhythm. Use direct positive reframes instead, for example "That afternoon crash points to cycle timing" or "The research loop is fear wearing a useful outfit."
+
 This block is mandatory for TikTok-script deliverables. It is NOT a replacement for the script itself, and it is NOT used for Instagram Reels or for non-TikTok formats. Do not pad it; keep it tight. If the user has just asked a question (not a script), this block doesn't apply.
 
 ## FINAL WRITING-RULES SELF-AUDIT (BEFORE SENDING ANY DELIVERABLE)
@@ -318,6 +330,10 @@ If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRIN
 // 1 credit = 1,450 characters of chat content (input + output combined).
 // Sized for ~55% gross margin on Sonnet 4.6 via the Mentor gateway.
 const CHARS_PER_CREDIT = 1450;
+
+function sanitizeUserFacingText(text: string): string {
+  return text.replace(/[—–]/g, ", ").replace(/,\s+not\b/gi, " rather than");
+}
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -508,13 +524,14 @@ ${docsBlock}`;
   };
 
   const sseTextResponse = (text: string) => {
-    outputChars += text.length;
+    const sanitizedText = sanitizeUserFacingText(text);
+    outputChars += sanitizedText.length;
     const body = new ReadableStream({
       async start(controller) {
         controller.enqueue(
           encoder.encode(
             `data: ${JSON.stringify({
-              choices: [{ delta: { content: text } }],
+              choices: [{ delta: { content: sanitizedText } }],
             })}\n\n`
           )
         );
@@ -605,6 +622,20 @@ ${docsBlock}`;
   // (and credit-deduction code) keeps working unchanged. We emit
   //   data: {"choices":[{"delta":{"content":"<chunk>"}}]}\n\n
   // for each text delta and a terminal `data: [DONE]\n\n`.
+  let pendingText = "";
+  const flushText = (
+    controller: ReadableStreamDefaultController,
+    text: string
+  ) => {
+    const sanitizedText = sanitizeUserFacingText(text);
+    if (!sanitizedText) return;
+    outputChars += sanitizedText.length;
+    const frame = `data: ${JSON.stringify({
+      choices: [{ delta: { content: sanitizedText } }],
+    })}\n\n`;
+    controller.enqueue(encoder.encode(frame));
+  };
+
   const sseBody = new ReadableStream({
     async start(controller) {
       try {
@@ -615,13 +646,15 @@ ${docsBlock}`;
           ) {
             const text = event.delta.text;
             if (text) {
-              outputChars += text.length;
-              const frame = `data: ${JSON.stringify({
-                choices: [{ delta: { content: text } }],
-              })}\n\n`;
-              controller.enqueue(encoder.encode(frame));
+              pendingText += text;
+              if (pendingText.length > 160) {
+                flushText(controller, pendingText.slice(0, -80));
+                pendingText = pendingText.slice(-80);
+              }
             }
           } else if (event.type === "message_stop") {
+            flushText(controller, pendingText);
+            pendingText = "";
             controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           }
         }
