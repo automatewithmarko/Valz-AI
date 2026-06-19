@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { buildKbContext } from "@/lib/kb-retrieval";
 import {
@@ -327,12 +326,22 @@ When you fill a Plug-and-Play template's blanks for a carousel, story sequence, 
 If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRINT" section above), then the consultant rule still applies — ask for niche, audience, offer specifics before producing the deliverable.`;
 
 
-// 1 credit = 1,450 characters of chat content (input + output combined).
-// Sized for ~55% gross margin on Sonnet 4.6 via the Mentor gateway.
-const CHARS_PER_CREDIT = 1450;
+// 1 credit = 18,850 characters of chat content (input + output combined).
+// Sized for the chat agent's Mentor gateway usage.
+const CHARS_PER_CREDIT = 18_850;
+const CHAT_MODEL = "atlas/deepseek-ai/deepseek-v4-pro";
+
+type ChatMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};
 
 function sanitizeUserFacingText(text: string): string {
   return text.replace(/[—–]/g, ", ").replace(/,\s+not\b/gi, " rather than");
+}
+
+function chatCompletionsUrl(apiUrl: string): string {
+  return `${apiUrl.replace(/\/$/, "")}/chat/completions`;
 }
 
 export async function POST(req: NextRequest) {
@@ -492,17 +501,10 @@ ${docsBlock}`;
     systemPrompt.length +
     messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
 
-  // The mentor gateway hosts Anthropic's native Messages API at
-  // /v1/messages — NOT at /v1/chat/completions. The Anthropic SDK appends
-  // /v1/messages itself, so the baseURL must end at /api.
-  const baseURL = apiUrl.replace(/\/v1\/?$/, "");
-  const client = new Anthropic({ apiKey, baseURL });
-
-  // Anthropic requires the system prompt as a top-level field and the
-  // messages array to contain only user/assistant turns.
-  const anthroMessages = messages
+  const chatMessages: ChatMessage[] = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+  const completionUrl = chatCompletionsUrl(apiUrl);
 
   const encoder = new TextEncoder();
   let outputChars = 0;
@@ -561,17 +563,28 @@ ${docsBlock}`;
     try {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         inputChars += instruction.length;
-        const response = await client.messages.create({
-          model: "claude-sonnet-4-6",
-          max_tokens: 4096,
-          system: systemPrompt,
-          messages: [
-            ...anthroMessages,
-            { role: "user", content: instruction },
-          ],
+        const response = await fetch(completionUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: CHAT_MODEL,
+            max_tokens: 4096,
+            stream: false,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...chatMessages,
+              { role: "user", content: instruction },
+            ],
+          }),
         });
-        const raw =
-          response.content[0]?.type === "text" ? response.content[0].text : "";
+        if (!response.ok) {
+          throw new Error(`Mentor API ${response.status}: ${await response.text()}`);
+        }
+        const completion = await response.json();
+        const raw = completion.choices?.[0]?.message?.content ?? "";
         previousJson = raw;
 
         try {
@@ -602,14 +615,27 @@ ${docsBlock}`;
     }
   }
 
-  let stream;
+  let streamResponse: Response;
   try {
-    stream = await client.messages.stream({
-      model: "claude-sonnet-4-6",
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: anthroMessages,
+    streamResponse = await fetch(completionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        max_tokens: 4096,
+        stream: true,
+        messages: [{ role: "system", content: systemPrompt }, ...chatMessages],
+      }),
     });
+    if (!streamResponse.ok) {
+      throw new Error(`Mentor API ${streamResponse.status}: ${await streamResponse.text()}`);
+    }
+    if (!streamResponse.body) {
+      throw new Error("Mentor API returned an empty stream.");
+    }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
     return new Response(JSON.stringify({ error }), {
@@ -618,10 +644,8 @@ ${docsBlock}`;
     });
   }
 
-  // Translate Anthropic events to OpenAI-style SSE so the existing client
-  // (and credit-deduction code) keeps working unchanged. We emit
-  //   data: {"choices":[{"delta":{"content":"<chunk>"}}]}\n\n
-  // for each text delta and a terminal `data: [DONE]\n\n`.
+  // Relay the OpenAI-style Mentor SSE while preserving our writing-rule
+  // sanitizer and credit accounting.
   let pendingText = "";
   const flushText = (
     controller: ReadableStreamDefaultController,
@@ -638,13 +662,30 @@ ${docsBlock}`;
 
   const sseBody = new ReadableStream({
     async start(controller) {
+      const reader = streamResponse.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
       try {
-        for await (const event of stream) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            const text = event.delta.text;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let lineEnd: number;
+          while ((lineEnd = buffer.indexOf("\n")) !== -1) {
+            const line = buffer.slice(0, lineEnd).trim();
+            buffer = buffer.slice(lineEnd + 1);
+            if (!line.startsWith("data:")) continue;
+            const data = line.slice(5).trim();
+            if (!data) continue;
+            if (data === "[DONE]") {
+              flushText(controller, pendingText);
+              pendingText = "";
+              controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              return;
+            }
+
+            const event = JSON.parse(data);
+            const text = event.choices?.[0]?.delta?.content ?? "";
             if (text) {
               pendingText += text;
               if (pendingText.length > 160) {
@@ -652,12 +693,11 @@ ${docsBlock}`;
                 pendingText = pendingText.slice(-80);
               }
             }
-          } else if (event.type === "message_stop") {
-            flushText(controller, pendingText);
-            pendingText = "";
-            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
           }
         }
+        flushText(controller, pendingText);
+        pendingText = "";
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         controller.enqueue(
