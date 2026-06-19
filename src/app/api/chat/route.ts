@@ -6,6 +6,13 @@ import {
   formatDocsForPrompt,
   matchBrandDnaDocs,
 } from "@/lib/brand-dna-retrieval";
+import {
+  buildLockedCarouselInstruction,
+  isLikelyCarouselRequest,
+  parseLockedCarouselJson,
+  renderLockedCarousel,
+  validateLockedCarousel,
+} from "@/lib/carousel-template-lock";
 
 const SYSTEM_PROMPT = `You are Valzacchi.ai, a personal brand consultant and marketing strategist. You talk like a sharp, experienced coach sitting across the table from someone, not like a search engine or a textbook.
 
@@ -465,7 +472,7 @@ ${docsBlock}`;
   }
 
   // Count input characters: system prompt + all user/assistant messages
-  const inputChars =
+  let inputChars =
     systemPrompt.length +
     messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
 
@@ -480,6 +487,103 @@ ${docsBlock}`;
   const anthroMessages = messages
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+
+  const encoder = new TextEncoder();
+  let outputChars = 0;
+  let deducted = false;
+
+  const deductCredits = async () => {
+    if (deducted) return;
+    deducted = true;
+    const totalChars = inputChars + outputChars;
+    const creditsToDeduct = totalChars / CHARS_PER_CREDIT;
+    try {
+      await supabase.rpc("deduct_credits", {
+        user_uuid: user.id,
+        credit_amount: creditsToDeduct,
+      });
+    } catch (err) {
+      console.error("Failed to deduct credits:", err);
+    }
+  };
+
+  const sseTextResponse = (text: string) => {
+    outputChars += text.length;
+    const body = new ReadableStream({
+      async start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `data: ${JSON.stringify({
+              choices: [{ delta: { content: text } }],
+            })}\n\n`
+          )
+        );
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        await deductCredits();
+        controller.close();
+      },
+      cancel() {
+        void deductCredits();
+      },
+    });
+
+    return new Response(body, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  };
+
+  if (lastUserMessage && isLikelyCarouselRequest(lastUserMessage)) {
+    let instruction = buildLockedCarouselInstruction();
+    let previousJson = "";
+    let validationErrors: string[] = [];
+
+    try {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        inputChars += instruction.length;
+        const response = await client.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: [
+            ...anthroMessages,
+            { role: "user", content: instruction },
+          ],
+        });
+        const raw =
+          response.content[0]?.type === "text" ? response.content[0].text : "";
+        previousJson = raw;
+
+        try {
+          const parsed = parseLockedCarouselJson(raw);
+          const validation = validateLockedCarousel(parsed);
+          if (validation.ok) {
+            return sseTextResponse(renderLockedCarousel(parsed));
+          }
+          validationErrors = validation.errors;
+        } catch (err) {
+          validationErrors = [
+            `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+          ];
+        }
+
+        instruction = buildLockedCarouselInstruction(validationErrors, previousJson);
+      }
+
+      return sseTextResponse(
+        "I need to tighten one thing before I draft this properly. The carousel template did not validate cleanly, so I need one more specific detail to fill the Plug-and-Play lines without guessing."
+      );
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      return new Response(JSON.stringify({ error }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }
 
   let stream;
   try {
@@ -501,25 +605,6 @@ ${docsBlock}`;
   // (and credit-deduction code) keeps working unchanged. We emit
   //   data: {"choices":[{"delta":{"content":"<chunk>"}}]}\n\n
   // for each text delta and a terminal `data: [DONE]\n\n`.
-  const encoder = new TextEncoder();
-  let outputChars = 0;
-  let deducted = false;
-
-  const deductCredits = async () => {
-    if (deducted) return;
-    deducted = true;
-    const totalChars = inputChars + outputChars;
-    const creditsToDeduct = totalChars / CHARS_PER_CREDIT;
-    try {
-      await supabase.rpc("deduct_credits", {
-        user_uuid: user.id,
-        credit_amount: creditsToDeduct,
-      });
-    } catch (err) {
-      console.error("Failed to deduct credits:", err);
-    }
-  };
-
   const sseBody = new ReadableStream({
     async start(controller) {
       try {
