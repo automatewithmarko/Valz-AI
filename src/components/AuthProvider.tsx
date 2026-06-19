@@ -47,6 +47,28 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
+function isAuthLockAbort(err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    (err instanceof DOMException && err.name === "AbortError") ||
+    /Lock broken by another request with the 'steal' option/i.test(message)
+  );
+}
+
+async function retryAuthLock<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (!isAuthLockAbort(err) || attempt === attempts) break;
+      await new Promise((resolve) => setTimeout(resolve, 75 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [supabase] = useState(() => createClient());
   const [session, setSession] = useState<Session | null>(null);
@@ -229,12 +251,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const {
         data: { user: sbUser },
-      } = await supabase.auth.getUser();
+      } = await retryAuthLock(() => supabase.auth.getUser());
       if (sbUser) {
         const { user: appUser, fromDb } = await buildUser(sbUser, userRef.current);
         setUser(appUser);
         if (fromDb) setDataReady(true);
       }
+    } catch (err) {
+      if (isAuthLockAbort(err)) {
+        console.warn("Auth refresh skipped after Supabase lock contention.");
+        return;
+      }
+      console.warn("Auth refresh failed:", err);
     } finally {
       refreshingRef.current = false;
     }
@@ -257,7 +285,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const {
           data: { session: initialSession },
-        } = await supabase.auth.getSession();
+        } = await retryAuthLock(() => supabase.auth.getSession());
 
         setSession(initialSession);
         setSupabaseUser(initialSession?.user ?? null);
@@ -268,7 +296,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (fromDb) setDataReady(true);
         }
       } catch (err) {
-        console.error("Auth init failed:", err);
+        if (isAuthLockAbort(err)) {
+          console.warn("Auth init skipped after Supabase lock contention.");
+        } else {
+          console.error("Auth init failed:", err);
+        }
       } finally {
         didFinish = true;
         clearTimeout(safetyTimeout);
