@@ -827,7 +827,7 @@ Write something like:
 - I used to believe that if I just ___________________________, everything would settle.
 - Feeling ___________________________ doesn't automatically mean ___________________________.
 
-**Slide 2 – Expand the Personal Context**
+**Slide 2 – Expand the Personal Context**/usa
 
 Now you add texture. What did that look like in real life? Describe a moment.
 

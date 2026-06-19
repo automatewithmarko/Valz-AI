@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { buildKbContext } from "@/lib/kb-retrieval";
 import {
@@ -6,11 +7,16 @@ import {
   matchBrandDnaDocs,
 } from "@/lib/brand-dna-retrieval";
 import {
-  buildLockedCarouselInstruction,
   isLikelyCarouselRequest,
+  buildIdeationInstruction,
+  parseIdeation,
+  getCarouselTemplate,
+  buildCarouselFillInstruction,
   parseLockedCarouselJson,
-  renderLockedCarousel,
   validateLockedCarousel,
+  renderLockedCarousel,
+  findCarouselDuplication,
+  type CarouselIdeation,
 } from "@/lib/carousel-template-lock";
 
 const SYSTEM_PROMPT = `You are Valzacchi.ai, a personal brand consultant and marketing strategist. You talk like a sharp, experienced coach sitting across the table from someone, not like a search engine or a textbook.
@@ -331,6 +337,20 @@ If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRIN
 const CHARS_PER_CREDIT = 18_850;
 const CHAT_MODEL = "atlas/deepseek-ai/deepseek-v4-pro";
 
+// Carousel generation is two-stage: DeepSeek (CHAT_MODEL) ideates the substance
+// of each slide with full context, then Sonnet renders that ideation into the
+// locked template. Sonnet respects the template grammar reliably when it sees
+// one small template; DeepSeek alone breaks the seams around literal connective
+// words (e.g. "When {0} happened"). Mentor serves Anthropic models on
+// /v1/messages, not /chat/completions.
+const CAROUSEL_MODEL = "claude-sonnet-4-6";
+const CAROUSEL_SYSTEM =
+  "You fill the blanks of one locked Instagram carousel template using a strategist's ideation. Return only the JSON described in the user's instruction. No markdown, no commentary.";
+// Sonnet 4.6 costs materially more than DeepSeek, so its characters bill at a
+// higher rate. Each Sonnet character counts as this many credits' worth of
+// characters relative to a DeepSeek character.
+const SONNET_CREDIT_MULTIPLIER = 13;
+
 type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string;
@@ -508,12 +528,16 @@ ${docsBlock}`;
 
   const encoder = new TextEncoder();
   let outputChars = 0;
+  // Characters attributable to the Sonnet carousel call (input + output). These
+  // bill at SONNET_CREDIT_MULTIPLIER times the DeepSeek rate.
+  let sonnetChars = 0;
   let deducted = false;
 
   const deductCredits = async () => {
     if (deducted) return;
     deducted = true;
-    const totalChars = inputChars + outputChars;
+    const totalChars =
+      inputChars + outputChars + sonnetChars * SONNET_CREDIT_MULTIPLIER;
     const creditsToDeduct = totalChars / CHARS_PER_CREDIT;
     try {
       await supabase.rpc("deduct_credits", {
@@ -525,9 +549,12 @@ ${docsBlock}`;
     }
   };
 
-  const sseTextResponse = (text: string) => {
+  // For Sonnet-produced output (the rendered carousel), pass { sonnet: true } so
+  // the deliverable bills at the Sonnet rate instead of the DeepSeek rate.
+  const sseTextResponse = (text: string, opts?: { sonnet?: boolean }) => {
     const sanitizedText = sanitizeUserFacingText(text);
-    outputChars += sanitizedText.length;
+    if (opts?.sonnet) sonnetChars += sanitizedText.length;
+    else outputChars += sanitizedText.length;
     const body = new ReadableStream({
       async start(controller) {
         controller.enqueue(
@@ -556,14 +583,26 @@ ${docsBlock}`;
   };
 
   if (lastUserMessage && isLikelyCarouselRequest(lastUserMessage)) {
-    let instruction = buildLockedCarouselInstruction();
-    let previousJson = "";
-    let validationErrors: string[] = [];
+    // Two-stage carousel:
+    //   Stage 1 — DeepSeek ideates the substance of each slide, with the FULL
+    //     context (system prompt + Blueprint + KB + chat history), and names
+    //     the framework it chose.
+    //   Stage 2 — Sonnet fills the blanks of that ONE template as JSON (minimal
+    //     payload) via Mentor's Anthropic-native endpoint; code then renders the
+    //     locked wording verbatim. Validation drives up to 3 attempts.
+    // The SDK appends /v1/messages itself, so the baseURL must stop at /api.
+    const anthropic = new Anthropic({
+      apiKey,
+      baseURL: apiUrl.replace(/\/v1\/?$/, ""),
+    });
 
     try {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        inputChars += instruction.length;
-        const response = await fetch(completionUrl, {
+      // --- Stage 1: DeepSeek ideation (full context) ---
+      const ideationInstruction = buildIdeationInstruction();
+      let ideation: CarouselIdeation | null = null;
+      for (let attempt = 0; attempt < 2 && !ideation; attempt += 1) {
+        inputChars += ideationInstruction.length;
+        const res = await fetch(completionUrl, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -576,35 +615,85 @@ ${docsBlock}`;
             messages: [
               { role: "system", content: systemPrompt },
               ...chatMessages,
-              { role: "user", content: instruction },
+              { role: "user", content: ideationInstruction },
             ],
           }),
         });
-        if (!response.ok) {
-          throw new Error(`Mentor API ${response.status}: ${await response.text()}`);
+        if (!res.ok) {
+          throw new Error(`Mentor API ${res.status}: ${await res.text()}`);
         }
-        const completion = await response.json();
+        const completion = await res.json();
         const raw = completion.choices?.[0]?.message?.content ?? "";
+        outputChars += raw.length;
+        ideation = parseIdeation(raw);
+      }
+
+      if (!ideation) {
+        return sseTextResponse(
+          "I need one more detail before I can draft this carousel. Tell me a bit more about the specific angle or result you'd like to feature."
+        );
+      }
+
+      const template = getCarouselTemplate(ideation.framework);
+      if (!template) {
+        // framework === "" (the model needs a clarification) or an unknown id.
+        return sseTextResponse(
+          ideation.angle?.trim() ||
+            "Before I draft this, tell me a bit more about the specific angle or result you'd like to feature."
+        );
+      }
+
+      // --- Stage 2: Sonnet fills blanks as JSON; code renders verbatim ---
+      let validationErrors: string[] = [];
+      let previousJson = "";
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const fillInstruction = buildCarouselFillInstruction(
+          template,
+          ideation,
+          lastUserMessage,
+          validationErrors,
+          previousJson
+        );
+        // Sonnet input bills at the Sonnet rate.
+        sonnetChars += CAROUSEL_SYSTEM.length + fillInstruction.length;
+        const completion = await anthropic.messages.create({
+          model: CAROUSEL_MODEL,
+          max_tokens: 2048,
+          system: CAROUSEL_SYSTEM,
+          messages: [{ role: "user", content: fillInstruction }],
+        });
+        const raw =
+          completion.content.find((block) => block.type === "text")?.text ?? "";
         previousJson = raw;
 
         try {
           const parsed = parseLockedCarouselJson(raw);
           const validation = validateLockedCarousel(parsed);
           if (validation.ok) {
-            return sseTextResponse(renderLockedCarousel(parsed));
+            const rendered = renderLockedCarousel(parsed);
+            // Validation can't see a blank that spilled the template's own
+            // trailing words; catch the resulting duplication and retry.
+            const dup = findCarouselDuplication(rendered);
+            if (!dup) {
+              // The deliverable is the Sonnet carousel — bill at the Sonnet rate.
+              return sseTextResponse(rendered, { sonnet: true });
+            }
+            validationErrors = [
+              `A blank included the template's own words and produced a repeated phrase: "${dup}". Put only the missing value in that blank.`,
+            ];
+          } else {
+            validationErrors = validation.errors;
           }
-          validationErrors = validation.errors;
         } catch (err) {
           validationErrors = [
             `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
           ];
         }
-
-        instruction = buildLockedCarouselInstruction(validationErrors, previousJson);
       }
 
+      // The fill did not validate after retries (rare).
       return sseTextResponse(
-        "I need to tighten one thing before I draft this properly. The carousel template did not validate cleanly, so I need one more specific detail to fill the Plug-and-Play lines without guessing."
+        "I couldn't fit this cleanly into the template just now. Want me to try again, or tweak the angle?"
       );
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);

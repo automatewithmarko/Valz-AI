@@ -518,3 +518,149 @@ export function parseLockedCarouselJson(text: string): LockedCarouselResult {
     : trimmed.slice(trimmed.indexOf("{"), trimmed.lastIndexOf("}") + 1);
   return JSON.parse(jsonText) as LockedCarouselResult;
 }
+
+// ---------------------------------------------------------------------------
+// Two-stage carousel: DeepSeek ideates (per-slide substance, full context),
+// Sonnet fills the chosen template's blanks as JSON, and the existing
+// parse/validate/render functions above turn those blanks into the final
+// carousel with the template wording guaranteed verbatim.
+// ---------------------------------------------------------------------------
+
+export type CarouselIdeation = {
+  framework: string;
+  angle: string;
+  slides: { label: string; idea: string }[];
+};
+
+function ideationCatalog() {
+  return TEMPLATES.map((template) => ({
+    framework: template.id,
+    name: template.name,
+    variableProductSlides: !!template.variableProductSlides,
+    slides: template.slides.map((slide) => slide.label),
+  }));
+}
+
+// Stage 1 prompt — DeepSeek picks a framework and briefs each slide. Sent on
+// top of the full system prompt (Blueprint + KB) and chat history, so the ideas
+// are grounded in the user's brand and the conversation.
+export function buildIdeationInstruction(): string {
+  return `CAROUSEL IDEATION
+
+The user wants an Instagram carousel. Pick the single best framework for their request and the conversation so far, then plan each slide. You are NOT writing final copy; you are briefing a copywriter on what each slide should contain.
+
+Use the user's Blueprint, knowledge base, and everything in this conversation to make the ideas specific to THEIR brand, audience, voice, offer, and the topic they asked about.
+
+Available frameworks (id, name, ordered slide labels):
+${JSON.stringify(ideationCatalog(), null, 2)}
+
+Return ONLY JSON, no markdown, no commentary:
+{
+  "framework": "<framework id from the list above>",
+  "angle": "<one short sentence on the angle; do not name the framework>",
+  "slides": [
+    { "label": "<exact slide label from the chosen framework>", "idea": "<what this slide should convey: the specific substance, concrete details, examples, and emotional texture. Adequate and specific but concise, 1 to 3 sentences. Do NOT write polished final copy.>" }
+  ]
+}
+
+Rules:
+- Use the exact framework id and the exact slide labels of the chosen framework, in order.
+- Make every idea specific and textured to this user and topic, not generic.
+- "Vetted Edit" has a variable number of product slides: output one "Context" slide, then one "Product or Resource" slide per item the user is recommending (at least one), then the "Invitation" slide.
+- "Proof Over Hype" needs a real, concrete result or case study. If the user has not provided one, set "framework" to "" and put a question asking for that result in "angle".
+- If the request is missing data the first slide needs, set "framework" to "" and put a single clarifying question in "angle".`;
+}
+
+export function parseIdeation(text: string): CarouselIdeation | null {
+  try {
+    const trimmed = text.trim();
+    const jsonText = trimmed.startsWith("{")
+      ? trimmed
+      : trimmed.slice(trimmed.indexOf("{"), trimmed.lastIndexOf("}") + 1);
+    const parsed = JSON.parse(jsonText) as CarouselIdeation;
+    if (typeof parsed.framework !== "string") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function getCarouselTemplate(id: string): CarouselTemplate | undefined {
+  return TEMPLATE_BY_ID.get(id);
+}
+
+function templateWithBlanksForPrompt(template: CarouselTemplate): string {
+  const slides = template.slides.map((slide, index) => {
+    const lines = slide.lines
+      .map(
+        (line) =>
+          `      - id "${line.id}", ${line.blanks} blank${line.blanks > 1 ? "s" : ""}: ${line.text}`
+      )
+      .join("\n");
+    const min = slide.minLines
+      ? `  (include at least ${slide.minLines} of these lines)`
+      : "";
+    return `  Slide ${index + 1}, label "${slide.label}"${min}\n${lines}`;
+  });
+  const productNote = template.variableProductSlides
+    ? `\n\nThis framework has a variable number of "Product or Resource" slides: output the Context slide, then one "Product or Resource" slide per item in the ideation (at least one), then the Invitation slide.`
+    : "";
+  return `Framework: ${template.name} (id: ${template.id})\n${slides.join("\n")}${productNote}`;
+}
+
+// Stage 2 prompt — Sonnet fills the blanks of the ONE chosen template using the
+// ideation as substance. It returns JSON (blanks only); code renders the fixed
+// template wording verbatim, so the model can never touch the locked words.
+export function buildCarouselFillInstruction(
+  template: CarouselTemplate,
+  ideation: CarouselIdeation,
+  userRequest: string,
+  validationErrors?: string[],
+  previousJson?: string
+): string {
+  const ideaText = ideation.slides
+    .map((slide, index) => `  ${index + 1}. ${slide.label}: ${slide.idea}`)
+    .join("\n");
+  return `Fill the blanks of this ONE locked carousel template using the strategist's ideation. Return ONLY JSON.
+
+Template (each line shows its id, blank count, and the fixed wording with {0}/{1} placeholders):
+${templateWithBlanksForPrompt(template)}
+
+Angle: ${ideation.angle}
+
+Ideation (substance for each slide):
+${ideaText}
+
+Original user request (for tone and detail): ${userRequest}
+
+Return ONLY this JSON shape, no markdown, no commentary:
+{
+  "mode": "carousel",
+  "framework": "${template.id}",
+  "angle": "<one short sentence; do not name the framework>",
+  "slides": [
+    { "label": "<exact slide label>", "lines": [ { "id": "<line id from that slide>", "blanks": ["<blank value only, not the full sentence>"] } ] }
+  ]
+}
+
+Hard rules:
+- Each "label" value is exactly the quoted label shown for that slide (e.g. "The Identity Call Out"). Do NOT add a "Slide 1 - " prefix or any other text.
+- Output one slides entry per template slide, in order, using the exact labels and only the line ids listed under that slide. If a slide lists a minimum, include at least that many lines.
+- Each "blanks" array must contain exactly the number of blanks listed for that line.
+- Put ONLY the blank value in each blank. Never include any of the template's fixed words. For "Comment {0} and I'll {1}.", the {0} blank is just the keyword (e.g. "REST"), never "REST and I'll send it through".
+- Choose each blank so the finished sentence (the template's fixed words plus your blank) is natural and grammatically correct, including any words AFTER the blank. For "When {0} happened, I realised {1}.", the {0} blank must be an event or noun phrase so "<blank> happened" reads correctly; it must NOT be a full clause that already contains its own verb.
+- Fill blanks with specific, textured language drawn from the ideation (concrete behaviours, time stamps, emotional texture). No generic filler like "taking action" or "getting clarity".
+- Make each blank grammatically fit its line. If the line needs a singular noun, use one. Capitalise a blank that starts the sentence.
+- Do not include em dashes, en dashes, or the text ", not" in any blank.
+${validationErrors?.length ? `\nYour previous JSON failed validation. Fix exactly these:\n${validationErrors.join("\n")}` : ""}${previousJson ? `\nPrevious JSON:\n${previousJson}` : ""}`;
+}
+
+// Structural validation guarantees blank counts and labels, but it cannot see
+// when a blank spills the template's own following words (e.g. filling {0} of
+// "Comment {0} and I'll send it through." with "REST and I'll send it through",
+// which renders the trailing phrase twice). Catch that back-to-back repetition
+// of a 4+ word phrase in the rendered output so the caller can retry.
+export function findCarouselDuplication(rendered: string): string | null {
+  const match = rendered.match(/\b(\w+(?:\s+\w+){3,})\s+\1\b/i);
+  return match ? match[1] : null;
+}
