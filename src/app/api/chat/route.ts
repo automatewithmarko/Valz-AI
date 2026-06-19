@@ -13,8 +13,6 @@ import {
   validateLockedCarousel,
 } from "@/lib/carousel-template-lock";
 
-export const maxDuration = 600;
-
 const SYSTEM_PROMPT = `You are Valzacchi.ai, a personal brand consultant and marketing strategist. You talk like a sharp, experienced coach sitting across the table from someone, not like a search engine or a textbook.
 
 ## HOW YOU COMMUNICATE
@@ -332,8 +330,6 @@ If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRIN
 // Sized for the chat agent's Mentor gateway usage.
 const CHARS_PER_CREDIT = 18_850;
 const CHAT_MODEL = "atlas/deepseek-ai/deepseek-v4-pro";
-const MENTOR_TIMEOUT_MS = 10 * 60 * 1000;
-const STREAM_KEEPALIVE_MS = 15 * 1000;
 
 type ChatMessage = {
   role: "system" | "user" | "assistant";
@@ -567,10 +563,6 @@ ${docsBlock}`;
     try {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         inputChars += instruction.length;
-        const attemptController = new AbortController();
-        const attemptTimeout = setTimeout(() => {
-          attemptController.abort("Mentor API timed out after 10 minutes.");
-        }, MENTOR_TIMEOUT_MS);
         const response = await fetch(completionUrl, {
           method: "POST",
           headers: {
@@ -587,8 +579,7 @@ ${docsBlock}`;
               { role: "user", content: instruction },
             ],
           }),
-          signal: attemptController.signal,
-        }).finally(() => clearTimeout(attemptTimeout));
+        });
         if (!response.ok) {
           throw new Error(`Mentor API ${response.status}: ${await response.text()}`);
         }
@@ -624,10 +615,38 @@ ${docsBlock}`;
     }
   }
 
+  let streamResponse: Response;
+  try {
+    streamResponse = await fetch(completionUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: CHAT_MODEL,
+        max_tokens: 4096,
+        stream: true,
+        messages: [{ role: "system", content: systemPrompt }, ...chatMessages],
+      }),
+    });
+    if (!streamResponse.ok) {
+      throw new Error(`Mentor API ${streamResponse.status}: ${await streamResponse.text()}`);
+    }
+    if (!streamResponse.body) {
+      throw new Error("Mentor API returned an empty stream.");
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    return new Response(JSON.stringify({ error }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   // Relay the OpenAI-style Mentor SSE while preserving our writing-rule
   // sanitizer and credit accounting.
   let pendingText = "";
-  let upstreamController: AbortController | null = null;
   const flushText = (
     controller: ReadableStreamDefaultController,
     text: string
@@ -643,40 +662,10 @@ ${docsBlock}`;
 
   const sseBody = new ReadableStream({
     async start(controller) {
-      upstreamController = new AbortController();
-      const timeout = setTimeout(() => {
-        upstreamController?.abort("Mentor API timed out after 10 minutes.");
-      }, MENTOR_TIMEOUT_MS);
-      const keepalive = setInterval(() => {
-        controller.enqueue(encoder.encode(": keepalive\n\n"));
-      }, STREAM_KEEPALIVE_MS);
-      controller.enqueue(encoder.encode(": connected\n\n"));
-
+      const reader = streamResponse.body!.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
       try {
-        const streamResponse = await fetch(completionUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: CHAT_MODEL,
-            max_tokens: 4096,
-            stream: true,
-            messages: [{ role: "system", content: systemPrompt }, ...chatMessages],
-          }),
-          signal: upstreamController.signal,
-        });
-        if (!streamResponse.ok) {
-          throw new Error(`Mentor API ${streamResponse.status}: ${await streamResponse.text()}`);
-        }
-        if (!streamResponse.body) {
-          throw new Error("Mentor API returned an empty stream.");
-        }
-
-        const reader = streamResponse.body.getReader();
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
@@ -710,31 +699,22 @@ ${docsBlock}`;
         pendingText = "";
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       } catch (err) {
-        const msg =
-          upstreamController.signal.aborted
-            ? "Mentor API timed out after 10 minutes."
-            : err instanceof Error
-              ? err.message
-              : String(err);
+        const msg = err instanceof Error ? err.message : String(err);
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
         );
       } finally {
-        clearTimeout(timeout);
-        clearInterval(keepalive);
         await deductCredits();
         controller.close();
       }
     },
     cancel() {
-      upstreamController?.abort("Client disconnected.");
       void deductCredits();
     },
   });
 
   // If the client disconnects mid-stream, still deduct for what was generated
   req.signal.addEventListener("abort", () => {
-    upstreamController?.abort("Client disconnected.");
     void deductCredits();
   });
 
