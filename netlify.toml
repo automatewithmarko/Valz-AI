@@ -7,3 +7,18 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# The chat endpoint is served by a Netlify Edge Function rather than
+# the Next.js route handler. The Next.js plugin (v5.15.8) did not
+# honour the route's `runtime = "edge"` export, so /api/chat kept
+# being deployed as a regular Lambda function and was killed at the
+# wall-clock cap on long Mentor responses. This declaration ensures
+# the edge function intercepts /api/chat at the CDN edge, where
+# streamed responses have no such cap.
+#
+# `cache = "manual"` is required for streaming responses so Netlify's
+# CDN doesn't try to buffer or cache the SSE stream.
+[[edge_functions]]
+  path = "/api/chat"
+  function = "chat"
+  cache = "manual"
