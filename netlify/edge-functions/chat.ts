@@ -23,7 +23,11 @@
 // have the same architectural issue but the immediate failure is
 // long streaming chat, so the carousel migration is a follow-up.
 
-import { createServerClient } from "npm:@supabase/ssr@0.9.0";
+// Netlify Edge runs on Deno and flags `npm:` specifiers as experimental
+// (build failed with "Support for npm modules in edge functions is an
+// experimental feature"). esm.sh URL imports are Deno-native and the
+// supported way to load npm packages in edge functions.
+import { createServerClient } from "https://esm.sh/@supabase/ssr@0.9.0";
 
 import { SYSTEM_PROMPT } from "../../src/lib/chat-system-prompt.ts";
 import { isLikelyCarouselRequest } from "../../src/lib/carousel-template-lock.ts";
