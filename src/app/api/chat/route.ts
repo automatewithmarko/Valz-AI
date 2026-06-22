@@ -344,6 +344,15 @@ If the user does NOT have a Blueprint (no "## THE USER'S ALIGNED INCOME BLUEPRIN
 // Sized for the chat agent's Mentor gateway usage.
 const CHARS_PER_CREDIT = 18_850;
 const CHAT_MODEL = "atlas/deepseek-ai/deepseek-v4-pro";
+// Upstream safety net so a wedged Mentor connection eventually frees up
+// the edge function. 10 minutes is well past the longest legitimate
+// DeepSeek completion we've seen.
+const MENTOR_TIMEOUT_MS = 10 * 60 * 1000;
+// Netlify Edge (and most proxies) close idle SSE connections around the
+// 30s mark. We send a comment line every 15s so the connection looks
+// alive while Mentor is still composing — that's what keeps long
+// completions from getting 504'd mid-flight.
+const STREAM_KEEPALIVE_MS = 15 * 1000;
 
 // Carousel generation is two-stage: DeepSeek (CHAT_MODEL) ideates the substance
 // of each slide with full context, then Sonnet renders that ideation into the
@@ -373,6 +382,19 @@ function chatCompletionsUrl(apiUrl: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Per-request structured logging so Netlify Functions logs show exactly
+  // where the 30s+ is being spent. `reqId` correlates lines from a single
+  // invocation; `elapsed` is ms since the route was entered. Grep the
+  // Netlify log for "[chat <reqId>]" to read one request's full timeline.
+  const reqId = crypto.randomUUID().slice(0, 8);
+  const t0 = Date.now();
+  const log = (stage: string, extra?: Record<string, unknown>) => {
+    const elapsed = Date.now() - t0;
+    const tail = extra ? ` ${JSON.stringify(extra)}` : "";
+    console.log(`[chat ${reqId}] +${elapsed}ms ${stage}${tail}`);
+  };
+  log("route_enter");
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -380,11 +402,13 @@ export async function POST(req: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (authError || !user) {
+    log("auth_fail", { authError: authError?.message });
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
+  log("auth_ok", { user: user.id });
 
   // Pre-check credit balance before making a paid upstream call
   const { data: credits } = await supabase
@@ -392,6 +416,7 @@ export async function POST(req: NextRequest) {
     .select("balance")
     .eq("user_id", user.id)
     .single();
+  log("credits_loaded", { balance: credits?.balance });
 
   if (!credits || credits.balance <= 0) {
     return new Response(
@@ -406,10 +431,19 @@ export async function POST(req: NextRequest) {
   const { messages } = (await req.json()) as {
     messages: { role: string; content: string }[];
   };
+  const totalHistoryChars = messages.reduce(
+    (sum, m) => sum + (m.content?.length ?? 0),
+    0
+  );
+  log("body_parsed", {
+    messages: messages.length,
+    historyChars: totalHistoryChars,
+  });
 
   const apiKey = process.env.MENTOR_API_KEY;
   const apiUrl = process.env.MENTOR_API_URL;
   if (!apiKey || !apiUrl) {
+    log("config_missing", { hasKey: !!apiKey, hasUrl: !!apiUrl });
     return new Response(JSON.stringify({ error: "Mentor API not configured" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -425,6 +459,7 @@ export async function POST(req: NextRequest) {
   // Read the SELECTED brand profile (the single is_primary one). With
   // multi-brand support a user can have several; the chat always uses the
   // one they currently have selected in the sidebar switcher.
+  const tBrandDna = Date.now();
   const { data: selectedBrand } = await supabase
     .from("brand_dnas")
     .select("id, blueprint_content, brand_name")
@@ -435,7 +470,12 @@ export async function POST(req: NextRequest) {
   // freshly-created, not-yet-built profile has none).
   const brandDna = selectedBrand?.blueprint_content ? selectedBrand : null;
   const selectedBrandId = selectedBrand?.id ?? null;
+  log("brand_dna_loaded", {
+    ms: Date.now() - tBrandDna,
+    blueprintChars: brandDna?.blueprint_content?.length ?? 0,
+  });
 
+  const tKb = Date.now();
   const [kbContext, matchedDocs, unembeddedDocsRes] = await Promise.all([
     lastUserMessage ? buildKbContext(supabase, lastUserMessage, 6) : Promise.resolve(null),
     // Retrieve only the user-uploaded docs whose "when_to_use" hint is
@@ -459,6 +499,12 @@ export async function POST(req: NextRequest) {
       : Promise.resolve({ data: [] as { label: string; when_to_use: string | null; content_text: string | null }[] }),
   ]);
   const unembeddedDocs = unembeddedDocsRes.data ?? [];
+  log("kb_loaded", {
+    ms: Date.now() - tKb,
+    kbContextChars: kbContext?.length ?? 0,
+    matchedDocs: matchedDocs.length,
+    unembeddedDocs: unembeddedDocs.length,
+  });
 
   if (brandDna?.blueprint_content) {
     systemPrompt += `
@@ -712,37 +758,9 @@ ${docsBlock}`;
     }
   }
 
-  let streamResponse: Response;
-  try {
-    streamResponse = await fetch(completionUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: CHAT_MODEL,
-        max_tokens: 4096,
-        stream: true,
-        messages: [{ role: "system", content: systemPrompt }, ...chatMessages],
-      }),
-    });
-    if (!streamResponse.ok) {
-      throw new Error(`Mentor API ${streamResponse.status}: ${await streamResponse.text()}`);
-    }
-    if (!streamResponse.body) {
-      throw new Error("Mentor API returned an empty stream.");
-    }
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    return new Response(JSON.stringify({ error }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
   // Relay the OpenAI-style Mentor SSE while preserving our writing-rule
-  // sanitizer and credit accounting.
+  // sanitizer and credit accounting. Both pendingText and flushText are
+  // captured by the stream's start() closure below.
   let pendingText = "";
   const flushText = (
     controller: ReadableStreamDefaultController,
@@ -759,13 +777,72 @@ ${docsBlock}`;
 
   const sseBody = new ReadableStream({
     async start(controller) {
-      const reader = streamResponse.body!.getReader();
+      // Flush a comment line immediately so the Response headers go out
+      // to the client within ~1s. If we awaited the upstream Mentor
+      // fetch BEFORE returning the Response (the pre-keepalive shape),
+      // long prompts where Mentor takes 30s+ to send its first byte
+      // would never get headers out and Netlify Edge would 504 the
+      // request at ~30s.
+      controller.enqueue(encoder.encode(": connected\n\n"));
+      log("stream_start");
+
+      const upstreamController = new AbortController();
+      const upstreamTimeout = setTimeout(() => {
+        upstreamController.abort("Mentor API timed out after 10 minutes.");
+      }, MENTOR_TIMEOUT_MS);
+      const keepalive = setInterval(() => {
+        controller.enqueue(encoder.encode(": keepalive\n\n"));
+      }, STREAM_KEEPALIVE_MS);
+
       const decoder = new TextDecoder();
       let buffer = "";
+      let firstChunkLogged = false;
+      const tFetch = Date.now();
+
       try {
+        log("upstream_request", { model: CHAT_MODEL });
+        const streamResponse = await fetch(completionUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: CHAT_MODEL,
+            max_tokens: 4096,
+            stream: true,
+            messages: [
+              { role: "system", content: systemPrompt },
+              ...chatMessages,
+            ],
+          }),
+          signal: upstreamController.signal,
+        });
+        log("upstream_headers", {
+          ms: Date.now() - tFetch,
+          status: streamResponse.status,
+        });
+
+        if (!streamResponse.ok) {
+          const errBody = await streamResponse.text();
+          log("upstream_error_body", {
+            status: streamResponse.status,
+            body: errBody.slice(0, 240),
+          });
+          throw new Error(`Mentor API ${streamResponse.status}: ${errBody}`);
+        }
+        if (!streamResponse.body) {
+          throw new Error("Mentor API returned an empty stream.");
+        }
+
+        const reader = streamResponse.body.getReader();
         while (true) {
           const { value, done } = await reader.read();
           if (done) break;
+          if (!firstChunkLogged) {
+            log("upstream_first_chunk", { ms: Date.now() - tFetch });
+            firstChunkLogged = true;
+          }
           buffer += decoder.decode(value, { stream: true });
           let lineEnd: number;
           while ((lineEnd = buffer.indexOf("\n")) !== -1) {
@@ -778,6 +855,7 @@ ${docsBlock}`;
               flushText(controller, pendingText);
               pendingText = "";
               controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+              log("stream_done", { outputChars });
               return;
             }
 
@@ -795,26 +873,37 @@ ${docsBlock}`;
         flushText(controller, pendingText);
         pendingText = "";
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        log("stream_done", { outputChars });
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+        const msg = upstreamController.signal.aborted
+          ? "Mentor API timed out after 10 minutes."
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        log("stream_error", { msg: msg.slice(0, 240) });
         controller.enqueue(
           encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`)
         );
       } finally {
+        clearTimeout(upstreamTimeout);
+        clearInterval(keepalive);
         await deductCredits();
         controller.close();
       }
     },
     cancel() {
+      log("stream_cancel");
       void deductCredits();
     },
   });
 
   // If the client disconnects mid-stream, still deduct for what was generated
   req.signal.addEventListener("abort", () => {
+    log("client_abort");
     void deductCredits();
   });
 
+  log("response_returned", { systemPromptChars: systemPrompt.length });
   return new Response(sseBody, {
     headers: {
       "Content-Type": "text/event-stream",
