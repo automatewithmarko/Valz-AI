@@ -19,6 +19,14 @@ import {
   type CarouselIdeation,
 } from "@/lib/carousel-template-lock";
 
+// Netlify's standard Node functions are capped at 26s, which kills long
+// DeepSeek responses on heavy prompts (Blueprint + KB + history) and
+// surfaces as a 504 Gateway Timeout → "Sorry, something went wrong" in
+// the UI. Edge Functions have no such cap and stream natively, so long
+// messages now run to completion. All imports above are edge-safe
+// (fetch-only, no Node APIs).
+export const runtime = "edge";
+
 const SYSTEM_PROMPT = `You are Valzacchi.ai, a personal brand consultant and marketing strategist. You talk like a sharp, experienced coach sitting across the table from someone, not like a search engine or a textbook.
 
 ## HOW YOU COMMUNICATE
