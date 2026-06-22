@@ -30,7 +30,18 @@
 import { createServerClient } from "https://esm.sh/@supabase/ssr@0.9.0";
 
 import { SYSTEM_PROMPT } from "../../src/lib/chat-system-prompt.ts";
-import { isLikelyCarouselRequest } from "../../src/lib/carousel-template-lock.ts";
+import {
+  isLikelyCarouselRequest,
+  buildIdeationInstruction,
+  parseIdeation,
+  getCarouselTemplate,
+  buildCarouselFillInstruction,
+  parseLockedCarouselJson,
+  validateLockedCarousel,
+  renderLockedCarousel,
+  findCarouselDuplication,
+  type CarouselIdeation,
+} from "../../src/lib/carousel-template-lock.ts";
 
 // Mirror the production constants exactly so behaviour matches the
 // Next.js route the user has been used to.
@@ -38,6 +49,13 @@ const CHARS_PER_CREDIT = 18_850;
 const CHAT_MODEL = "atlas/deepseek-ai/deepseek-v4-pro";
 const MENTOR_TIMEOUT_MS = 10 * 60 * 1000;
 const STREAM_KEEPALIVE_MS = 15 * 1000;
+// Carousel two-stage: DeepSeek ideates with full context, then Sonnet
+// fills the locked template via Mentor's Anthropic-native endpoint.
+const CAROUSEL_MODEL = "claude-sonnet-4-6";
+const CAROUSEL_SYSTEM =
+  "You fill the blanks of one locked Instagram carousel template using a strategist's ideation. Return only the JSON described in the user's instruction. No markdown, no commentary.";
+// Sonnet costs ~13x DeepSeek per character; bill accordingly.
+const SONNET_CREDIT_MULTIPLIER = 13;
 
 const OPENAI_EMBEDDING_URL = "https://api.openai.com/v1/embeddings";
 const EMBEDDING_MODEL = "text-embedding-3-large";
@@ -289,21 +307,8 @@ export default async (req: Request, _context: any) => {
 
   const lastUserMessage =
     [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-
-  // Carousel two-stage path is still in the Next.js route. Hand off
-  // for now so it keeps working for short carousel asks. Long ones
-  // will still 504 the same way they do today — that's the
-  // follow-up migration.
-  if (lastUserMessage && isLikelyCarouselRequest(lastUserMessage)) {
-    log("carousel_passthrough");
-    return new Response(
-      JSON.stringify({
-        error:
-          "Carousel generation is temporarily routed through the legacy handler and may time out on heavy prompts. Try a shorter ask or check back shortly.",
-      }),
-      { status: 503, headers: { "Content-Type": "application/json" } }
-    );
-  }
+  const isCarousel = !!lastUserMessage && isLikelyCarouselRequest(lastUserMessage);
+  log("intent", { isCarousel });
 
   const tBrandDna = Date.now();
   const { data: selectedBrand } = await supabase
@@ -403,6 +408,10 @@ ${docsBlock}`;
     systemPrompt.length +
     messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
   let outputChars = 0;
+  // Sonnet-attributable chars are billed at SONNET_CREDIT_MULTIPLIER
+  // times the DeepSeek rate. Only the carousel Stage 2 (template fill)
+  // adds to this; the streaming chat path leaves it at zero.
+  let sonnetChars = 0;
   let deducted = false;
 
   const chatMessages: ChatMessage[] = messages
@@ -414,7 +423,8 @@ ${docsBlock}`;
   const deductCredits = async () => {
     if (deducted) return;
     deducted = true;
-    const totalChars = inputChars + outputChars;
+    const totalChars =
+      inputChars + outputChars + sonnetChars * SONNET_CREDIT_MULTIPLIER;
     const creditsToDeduct = totalChars / CHARS_PER_CREDIT;
     try {
       await supabase.rpc("deduct_credits", {
@@ -424,6 +434,25 @@ ${docsBlock}`;
     } catch (err) {
       console.error("Failed to deduct credits:", err);
     }
+  };
+
+  // Anthropic-format URL for the Sonnet carousel-fill stage. The
+  // legacy Next.js route used the Anthropic SDK with
+  // `baseURL: apiUrl.replace(/\/v1\/?$/, "")`; the SDK then appends
+  // `/v1/messages`. We replicate that exact final URL here so the
+  // Mentor gateway routes to the same Anthropic-native endpoint.
+  const anthropicMessagesUrl = `${apiUrl.replace(/\/v1\/?$/, "")}/v1/messages`;
+
+  // Build a one-shot SSE frame string used by both the carousel path
+  // (single rendered output) and the early-exit error messages. Counts
+  // chars against the right bucket so credit billing stays accurate.
+  const buildOneShotFrame = (text: string, opts?: { sonnet?: boolean }) => {
+    const sanitized = sanitizeUserFacingText(text);
+    if (opts?.sonnet) sonnetChars += sanitized.length;
+    else outputChars += sanitized.length;
+    return `data: ${JSON.stringify({
+      choices: [{ delta: { content: sanitized } }],
+    })}\n\n`;
   };
 
   let pendingText = "";
@@ -462,6 +491,173 @@ ${docsBlock}`;
       const tFetch = Date.now();
 
       try {
+        if (isCarousel) {
+          // ---- Carousel two-stage path ----
+          //
+          // Stage 1: DeepSeek ideation. Reuses the full system prompt
+          // (Blueprint + KB + user docs) and chat history so the model
+          // picks the right framework for THIS user's situation.
+          const ideationInstruction = buildIdeationInstruction();
+          let ideation: CarouselIdeation | null = null;
+          for (let attempt = 0; attempt < 2 && !ideation; attempt += 1) {
+            inputChars += ideationInstruction.length;
+            log("carousel_ideation_attempt", { attempt });
+            const res = await fetch(completionUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+              },
+              body: JSON.stringify({
+                model: CHAT_MODEL,
+                max_tokens: 4096,
+                stream: false,
+                messages: [
+                  { role: "system", content: systemPrompt },
+                  ...chatMessages,
+                  { role: "user", content: ideationInstruction },
+                ],
+              }),
+              signal: upstreamController.signal,
+            });
+            if (!res.ok) {
+              const errBody = await res.text();
+              log("carousel_ideation_http_error", {
+                status: res.status,
+                body: errBody.slice(0, 240),
+              });
+              throw new Error(`Mentor API ${res.status}: ${errBody}`);
+            }
+            const completion = await res.json();
+            const raw = completion.choices?.[0]?.message?.content ?? "";
+            outputChars += raw.length;
+            ideation = parseIdeation(raw);
+          }
+          log("carousel_ideation_done", {
+            framework: ideation?.framework ?? null,
+          });
+
+          if (!ideation) {
+            controller.enqueue(
+              encoder.encode(
+                buildOneShotFrame(
+                  "I need one more detail before I can draft this carousel. Tell me a bit more about the specific angle or result you'd like to feature."
+                )
+              )
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            return;
+          }
+
+          const template = getCarouselTemplate(ideation.framework);
+          if (!template) {
+            // framework === "" (model needs clarification) or unknown id.
+            controller.enqueue(
+              encoder.encode(
+                buildOneShotFrame(
+                  ideation.angle?.trim() ||
+                    "Before I draft this, tell me a bit more about the specific angle or result you'd like to feature."
+                )
+              )
+            );
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+            return;
+          }
+
+          // Stage 2: Sonnet fills the locked Plug-and-Play template as
+          // JSON; we render the locked wording verbatim. Validation
+          // drives up to 3 attempts before falling back.
+          let validationErrors: string[] = [];
+          let previousJson = "";
+          for (let attempt = 0; attempt < 3; attempt += 1) {
+            const fillInstruction = buildCarouselFillInstruction(
+              template,
+              ideation,
+              lastUserMessage,
+              validationErrors,
+              previousJson
+            );
+            sonnetChars += CAROUSEL_SYSTEM.length + fillInstruction.length;
+            log("carousel_fill_attempt", { attempt });
+            const res = await fetch(anthropicMessagesUrl, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                // The legacy Anthropic SDK sends x-api-key; we send
+                // both x-api-key and Authorization so the Mentor
+                // gateway routes correctly regardless of which header
+                // it inspects.
+                "x-api-key": apiKey,
+                Authorization: `Bearer ${apiKey}`,
+                "anthropic-version": "2023-06-01",
+              },
+              body: JSON.stringify({
+                model: CAROUSEL_MODEL,
+                max_tokens: 2048,
+                system: CAROUSEL_SYSTEM,
+                messages: [{ role: "user", content: fillInstruction }],
+              }),
+              signal: upstreamController.signal,
+            });
+            if (!res.ok) {
+              const errBody = await res.text();
+              log("carousel_fill_http_error", {
+                status: res.status,
+                body: errBody.slice(0, 240),
+              });
+              throw new Error(
+                `Mentor /v1/messages ${res.status}: ${errBody}`
+              );
+            }
+            const completion = await res.json();
+            const raw =
+              (completion.content as { type: string; text?: string }[] | undefined)
+                ?.find((block) => block.type === "text")?.text ?? "";
+            previousJson = raw;
+
+            try {
+              const parsed = parseLockedCarouselJson(raw);
+              const validation = validateLockedCarousel(parsed);
+              if (validation.ok) {
+                const rendered = renderLockedCarousel(parsed);
+                const dup = findCarouselDuplication(rendered);
+                if (!dup) {
+                  log("carousel_done", { renderedChars: rendered.length });
+                  controller.enqueue(
+                    encoder.encode(
+                      buildOneShotFrame(rendered, { sonnet: true })
+                    )
+                  );
+                  controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                  return;
+                }
+                validationErrors = [
+                  `A blank included the template's own words and produced a repeated phrase: "${dup}". Put only the missing value in that blank.`,
+                ];
+              } else {
+                validationErrors = validation.errors;
+              }
+            } catch (err) {
+              validationErrors = [
+                `Invalid JSON: ${err instanceof Error ? err.message : String(err)}`,
+              ];
+            }
+          }
+
+          // Validation failed after all retries — rare.
+          log("carousel_validation_exhausted");
+          controller.enqueue(
+            encoder.encode(
+              buildOneShotFrame(
+                "I couldn't fit this cleanly into the template just now. Want me to try again, or tweak the angle?"
+              )
+            )
+          );
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          return;
+        }
+
+        // ---- Streaming chat path (default) ----
         log("upstream_request", { model: CHAT_MODEL });
         const streamResponse = await fetch(completionUrl, {
           method: "POST",
